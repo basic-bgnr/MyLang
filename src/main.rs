@@ -1,160 +1,187 @@
 use std::io::Write;
 
 fn main() {
-    test();
+    println!("{:?}", test());
 }
 
-fn test() {
-    // let input = "3*3-6";
-    // let (tokens, _) = lexer_generate_token(input);
-    // println!("{:?}", tokens);
-    // let mut parser = Parser::new(&tokens);
-    // let expr = parser.parse_term();
-    // println!("{:} = {:?}", input, expr.calculate());
+fn test() -> Result<(), String> {
     loop {
         let mut line = String::new();
         print!(">>> ");
+
         let _ = std::io::stdout().flush();
         let _ = std::io::stdin().read_line(&mut line).unwrap();
-        let (tokens, _) = lexer_generate_token(&line);
+
+        let input_chars = line.trim_end().chars().collect::<Vec<_>>();
+
+        let mut tokenizer = Tokenizer::new(&input_chars);
+        let tokens = tokenizer.tokenize()?;
+
         let mut parser = Parser::new(&tokens);
-        let expr = parser.parse_term();
-        println!("{:}", expr.calculate());
+        let result = parser.parse()?;
+
+        println!("{:}", result.calculate());
     }
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
-enum Operator {
+enum OperatorToken {
     PLUS,
     MINUS,
     STAR,
     DIVIDE,
 }
+impl OperatorToken {
+    fn get_all() -> [OperatorToken; 4] {
+        [
+            OperatorToken::PLUS,
+            OperatorToken::MINUS,
+            OperatorToken::STAR,
+            OperatorToken::DIVIDE,
+        ]
+    }
+    fn value(&self) -> &str {
+        match self {
+            OperatorToken::PLUS => "+",
+            OperatorToken::MINUS => "-",
+            OperatorToken::STAR => "*",
+            OperatorToken::DIVIDE => "/",
+        }
+    }
+}
 
 #[derive(PartialEq, Debug)]
 enum Token<'a> {
     Number(f64),
-    String(&'a str),
-    Operator(Operator),
+    Alphanumeric(&'a [char]),
+    Operator(OperatorToken),
+    WhiteSpace,
+    EOF,
 }
 
-type ParsedToken<'a> = (Option<Token<'a>>, &'a str);
+struct Tokenizer<'a> {
+    input_string: &'a [char],
+    index: usize,
+    len: usize,
+}
 
-fn match_integer<'a>(input: &'a str) -> ParsedToken<'a> {
-    let mut index = 0;
-    for chr in input.chars() {
-        if !('0'..='9').contains(&chr) {
-            break;
+impl<'a> Tokenizer<'a> {
+    fn new(input_string: &'a [char]) -> Self {
+        Tokenizer {
+            input_string: input_string,
+            index: 0,
+            len: input_string.len(),
         }
-        index += 1;
-    }
-    match (&input[0..index]).parse() {
-        Ok(num) => (Some(Token::Number(num)), &input[index..input.len()]),
-        Err(_) => (None, &input),
-    }
-}
-
-fn match_alphabet<'a>(input: &'a str) -> ParsedToken<'a> {
-    let mut index = 0;
-    for chr in input.chars() {
-        if !('A'..='Z').contains(&chr) && !('a'..='z').contains(&chr) {
-            break;
-        }
-        index += 1;
-    }
-    match index {
-        0 => (None, &input[index..input.len()]),
-        _ => (
-            Some(Token::String(&input[0..index])),
-            &input[index..input.len()],
-        ),
-    }
-}
-
-fn match_operator<'a>(input: &'a str) -> ParsedToken<'a> {
-    match input.chars().next() {
-        Some('+') => (
-            Some(Token::Operator(Operator::PLUS)),
-            &input[1..input.len()],
-        ),
-        Some('-') => (
-            Some(Token::Operator(Operator::MINUS)),
-            &input[1..input.len()],
-        ),
-        Some('/') => (
-            Some(Token::Operator(Operator::DIVIDE)),
-            &input[1..input.len()],
-        ),
-        Some('*') => (
-            Some(Token::Operator(Operator::STAR)),
-            &input[1..input.len()],
-        ),
-        _ => (None, input),
-    }
-}
-
-fn match_optional<'a>(input: &'a str) -> ParsedToken {
-    let (parsed, remaining) = match_integer(input);
-    if parsed != None {
-        return (parsed, remaining);
     }
 
-    let (parsed, remaining) = match_operator(input);
-    if parsed != None {
-        return (parsed, remaining);
+    fn advance(&mut self) {
+        self.index += 1;
     }
 
-    match_alphabet(input)
-}
-
-fn lexer_generate_token<'a>(mut input: &'a str) -> (Vec<Token>, &'a str) {
-    let mut output = Vec::new();
-    loop {
-        let (parsed, remaining) = match_optional(input);
-
-        if parsed != None {
-            output.push(parsed.unwrap());
+    fn peek(&self) -> Option<&char> {
+        if self.index < self.len {
+            Some(&self.input_string[self.index])
         } else {
-            return (output, remaining);
-        }
-        if remaining == "" {
-            return (output, remaining);
-        }
-        input = remaining;
-    }
-}
-
-#[derive(Debug)]
-enum Either {
-    Number(f64),
-    Expression(Box<BinaryExpression>),
-}
-impl Either {
-    fn calculate(&self) -> f64 {
-        match self {
-            Self::Number(val) => *val,
-
-            Self::Expression(boxed_expression) => match &**boxed_expression {
-                BinaryExpression {
-                    left,
-                    right,
-                    operator,
-                } => match operator {
-                    Operator::PLUS => left.calculate() + right.calculate(),
-                    Operator::MINUS => left.calculate() - right.calculate(),
-                    Operator::STAR => left.calculate() * right.calculate(),
-                    Operator::DIVIDE => left.calculate() / right.calculate(),
-                },
-            },
+            None
         }
     }
-}
 
-#[derive(Debug)]
-struct BinaryExpression {
-    left: Either,
-    right: Either,
-    operator: Operator,
+    fn get_alphanumeric_token(&self, start_index: usize, end_index: usize) -> Option<Token<'a>> {
+        if start_index >= end_index {
+            None
+        } else {
+            Some(Token::Alphanumeric(
+                &self.input_string[start_index..end_index],
+            ))
+        }
+    }
+    fn match_any_in_blob(&mut self, blob: &str) -> Option<Token<'a>> {
+        let initial = self.index;
+        match self.peek() {
+            Some(&chr) if blob.contains(chr) => {
+                self.advance();
+                return self.get_alphanumeric_token(initial, self.index);
+            }
+            _ => {
+                return None;
+            }
+        }
+    }
+    fn match_many_in_blob(&mut self, blob: &str) -> Option<Token<'a>> {
+        let initial_index = self.index;
+        loop {
+            match self.peek() {
+                Some(&chr) if blob.contains(chr) => self.advance(),
+                _ => break,
+            }
+        }
+        self.get_alphanumeric_token(initial_index, self.index)
+    }
+    fn match_exact_in_blob(&mut self, blob: &str) -> Option<Token<'a>> {
+        let initial_index = self.index;
+        for c in blob.chars() {
+            match self.peek() {
+                Some(&chr) if chr == c => self.advance(),
+                _ => {
+                    return None;
+                }
+            }
+        }
+        self.get_alphanumeric_token(initial_index, self.index)
+    }
+    fn match_number(&mut self) -> Option<Token<'a>> {
+        let valid_numbers = "0123456789";
+        match self.match_many_in_blob(valid_numbers) {
+            Some(Token::Alphanumeric(a)) if a[0] != '0' => {
+                Some(Token::Number(a.iter().collect::<String>().parse().unwrap()))
+            }
+            _ => None,
+        }
+    }
+    fn match_operator(&mut self) -> Option<Token<'a>> {
+        for operator_token in OperatorToken::get_all() {
+            match self.match_exact_in_blob(operator_token.value()) {
+                Some(Token::Alphanumeric(a))
+                    if &a.iter().collect::<String>() == operator_token.value() =>
+                {
+                    return Some(Token::Operator(operator_token));
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+        None
+    }
+    fn match_whitespace(&mut self) -> Option<Token<'a>> {
+        match self.match_many_in_blob(" ") {
+            Some(_) => Some(Token::WhiteSpace),
+            _ => None,
+        }
+    }
+
+    fn tokenize(&mut self) -> Result<Vec<Token>, String> {
+        let mut tokens = Vec::new();
+        while self.peek() != None {
+            if let Some(_) = self.match_whitespace() {
+                continue;
+            }
+            if let Some(token) = self.match_operator() {
+                tokens.push(token);
+                continue;
+            }
+            if let Some(token) = self.match_number() {
+                tokens.push(token);
+                continue;
+            }
+            return Result::Err(format!(
+                "Unknown Token (Tokenizing Error) at index: {}",
+                self.index
+            ));
+        }
+        tokens.push(Token::EOF);
+        return Result::Ok(tokens);
+    }
 }
 
 struct Parser<'a> {
@@ -170,6 +197,14 @@ impl<'a> Parser<'a> {
             index: 0,
             len: tokens.len(),
         }
+    }
+
+    fn parse(&mut self) -> Result<Either, String> {
+        let return_value = self.parse_term()?;
+        if self.peek_and_match(&Token::EOF) {
+            return Ok(return_value);
+        }
+        return Err(format!("Parsing Error at: {:} ", self.index));
     }
 
     fn advance(&mut self) -> Option<&Token> {
@@ -190,62 +225,148 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_term(&mut self) -> Either {
-        let mut first_expression = self.parse_prod();
+    fn parse_term(&mut self) -> Result<Either, String> {
+        let mut first_expression = self.parse_prod()?;
 
         loop {
-            if self.peek_and_match(&Token::Operator(Operator::PLUS)) {
+            if self.peek_and_match(&Token::Operator(OperatorToken::PLUS)) {
                 self.advance();
-                let expr = Either::Expression(Box::new(BinaryExpression {
-                    left: first_expression,
-                    right: self.parse_prod(),
-                    operator: Operator::PLUS,
-                }));
+                let expr = BinaryExpression::new(
+                    first_expression,
+                    self.parse_prod()?,
+                    OperatorToken::PLUS,
+                );
                 first_expression = expr;
-            } else if self.peek_and_match(&Token::Operator(Operator::MINUS)) {
-                self.advance();
-                let expr = Either::Expression(Box::new(BinaryExpression {
-                    left: first_expression,
-                    right: self.parse_prod(),
-                    operator: Operator::MINUS,
-                }));
-                first_expression = expr;
-            } else {
-                return first_expression;
+                continue;
             }
+            if self.peek_and_match(&Token::Operator(OperatorToken::MINUS)) {
+                self.advance();
+                let expr = BinaryExpression::new(
+                    first_expression,
+                    self.parse_prod()?,
+                    OperatorToken::MINUS,
+                );
+                first_expression = expr;
+                continue;
+            }
+            return Ok(first_expression);
         }
     }
 
-    fn parse_prod(&mut self) -> Either {
-        let mut first_expression = self.parse_number();
+    fn parse_prod(&mut self) -> Result<Either, String> {
+        let mut first_expression = self.parse_unary()?;
 
         loop {
-            if self.peek_and_match(&Token::Operator(Operator::STAR)) {
+            if self.peek_and_match(&Token::Operator(OperatorToken::STAR)) {
                 self.advance();
-                let expr = Either::Expression(Box::new(BinaryExpression {
+                let expr = Either::BinaryExpression(Box::new(BinaryExpression {
                     left: first_expression,
-                    right: self.parse_number(),
-                    operator: Operator::STAR,
+                    right: self.parse_unary()?,
+                    operator: OperatorToken::STAR,
                 }));
                 first_expression = expr;
-            } else if self.peek_and_match(&Token::Operator(Operator::DIVIDE)) {
-                self.advance();
-                let expr = Either::Expression(Box::new(BinaryExpression {
-                    left: first_expression,
-                    right: self.parse_number(),
-                    operator: Operator::DIVIDE,
-                }));
-                first_expression = expr;
-            } else {
-                return first_expression;
+                continue;
             }
+
+            if self.peek_and_match(&Token::Operator(OperatorToken::DIVIDE)) {
+                self.advance();
+                let expr = Either::BinaryExpression(Box::new(BinaryExpression {
+                    left: first_expression,
+                    right: self.parse_unary()?,
+                    operator: OperatorToken::DIVIDE,
+                }));
+                first_expression = expr;
+                continue;
+            }
+            return Ok(first_expression);
         }
     }
 
-    fn parse_number(&mut self) -> Either {
+    fn parse_unary(&mut self) -> Result<Either, String> {
+        if self.peek_and_match(&Token::Operator(OperatorToken::PLUS)) {
+            let operator = self.advance();
+            let expr = UnaryExpression::new(self.parse_unary()?, OperatorToken::PLUS);
+            return Ok(expr);
+        }
+
+        if self.peek_and_match(&Token::Operator(OperatorToken::MINUS)) {
+            let operator = self.advance();
+            let expr = UnaryExpression::new(self.parse_unary()?, OperatorToken::MINUS);
+            return Ok(expr);
+        }
+        self.parse_number()
+    }
+
+    fn parse_number(&mut self) -> Result<Either, String> {
         match self.advance() {
-            Some(&Token::Number(val)) => Either::Number(val),
-            _ => panic!("parsing error"),
+            Some(&Token::Number(val)) => Ok(Either::Number(val)),
+            a @ _ => Err(format!(
+                "Error parsing Number at token index {}",
+                self.index
+            )),
         }
+    }
+}
+
+#[derive(Debug)]
+enum Either {
+    Number(f64),
+    BinaryExpression(Box<BinaryExpression>),
+    UnaryExpression(Box<UnaryExpression>),
+}
+
+impl Either {
+    fn calculate(&self) -> f64 {
+        match self {
+            Self::Number(val) => *val,
+
+            Self::BinaryExpression(boxed_expression) => match &**boxed_expression {
+                BinaryExpression {
+                    left,
+                    right,
+                    operator,
+                } => match operator {
+                    OperatorToken::PLUS => left.calculate() + right.calculate(),
+                    OperatorToken::MINUS => left.calculate() - right.calculate(),
+                    OperatorToken::STAR => left.calculate() * right.calculate(),
+                    OperatorToken::DIVIDE => left.calculate() / right.calculate(),
+                },
+            },
+            Self::UnaryExpression(boxed_expression) => match &**boxed_expression {
+                UnaryExpression { val, operator } => match operator {
+                    OperatorToken::PLUS => 1.0 * val.calculate(),
+                    OperatorToken::MINUS | _ => -1.0 * val.calculate(),
+                },
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
+struct BinaryExpression {
+    left: Either,
+    right: Either,
+    operator: OperatorToken,
+}
+impl BinaryExpression {
+    fn new(left: Either, right: Either, operator: OperatorToken) -> Either {
+        Either::BinaryExpression(Box::new(BinaryExpression {
+            left: left,
+            right: right,
+            operator: operator,
+        }))
+    }
+}
+#[derive(Debug)]
+struct UnaryExpression {
+    val: Either,
+    operator: OperatorToken,
+}
+impl UnaryExpression {
+    fn new(val: Either, operator: OperatorToken) -> Either {
+        Either::UnaryExpression(Box::new(UnaryExpression {
+            val: val,
+            operator: operator,
+        }))
     }
 }
