@@ -53,19 +53,14 @@ enum OperatorToken {
 }
 impl OperatorToken {
     fn get_all() -> [OperatorToken; 4] {
-        [
-            OperatorToken::PLUS,
-            OperatorToken::MINUS,
-            OperatorToken::STAR,
-            OperatorToken::DIVIDE,
-        ]
+        [Self::PLUS, Self::MINUS, Self::STAR, Self::DIVIDE]
     }
     fn value(&self) -> &str {
         match self {
-            OperatorToken::PLUS => "+",
-            OperatorToken::MINUS => "-",
-            OperatorToken::STAR => "*",
-            OperatorToken::DIVIDE => "/",
+            Self::PLUS => "+",
+            Self::MINUS => "-",
+            Self::STAR => "*",
+            Self::DIVIDE => "/",
         }
     }
 }
