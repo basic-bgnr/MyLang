@@ -97,18 +97,29 @@ enum Token<'a> {
     EOF,
 }
 
+#[derive(PartialEq, Debug, Clone, Copy)]
+struct TokenInfo {
+    line_number: usize,
+    column_number: usize,
+}
 struct Tokenizer<'a> {
     input_string: &'a [char],
     index: usize,
     len: usize,
+    column_number: usize,
+    line_number: usize,
 }
 
 impl<'a> Tokenizer<'a> {
     fn new(input_string: &'a [char]) -> Self {
-        Tokenizer {
+        Self {
             input_string: input_string,
             index: 0,
             len: input_string.len(),
+            column_number: 1,
+            line_number: 1,
+        }
+    }
         }
     }
 
