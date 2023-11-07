@@ -45,6 +45,25 @@ fn test() -> Result<(), String> {
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
+enum SymbolToken {
+    SmallBracketOpen,
+    SmallBracketClose,
+}
+impl SymbolToken {
+    fn get_all() -> [SymbolToken; 2] {
+        [Self::SmallBracketOpen, Self::SmallBracketClose]
+    }
+    fn value(&self) -> &str {
+        match self {
+            Self::SmallBracketOpen => "(",
+            Self::SmallBracketClose => ")",
+        }
+    }
+    fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
+        check_with.iter().collect::<String>() == self.value()
+    }
+}
+#[derive(PartialEq, Debug, Clone, Copy)]
 enum OperatorToken {
     PLUS,
     MINUS,
@@ -73,6 +92,7 @@ enum Token<'a> {
     Number(f64),
     Alphanumeric(&'a [char]),
     Operator(OperatorToken),
+    Symbol(SymbolToken),
     WhiteSpace,
     EOF,
 }
