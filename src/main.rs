@@ -189,6 +189,19 @@ impl<'a> Tokenizer<'a> {
         }
         None
     }
+    fn match_symbol(&mut self) -> Option<Token<'a>> {
+        for symbol_token in SymbolToken::get_all() {
+            match self.match_exact_in_blob(symbol_token.value()) {
+                Some(Token::Alphanumeric(a)) if symbol_token.is_equal(a) => {
+                    return Some(Token::Symbol(symbol_token));
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+        None
+    }
     fn match_whitespace(&mut self) -> Option<Token<'a>> {
         match self.match_many_in_blob(" ") {
             Some(_) => Some(Token::WhiteSpace),
@@ -207,6 +220,10 @@ impl<'a> Tokenizer<'a> {
                 continue;
             }
             if let Some(token) = self.match_number() {
+                tokens.push(token);
+                continue;
+            }
+            if let Some(token) = self.match_symbol() {
                 tokens.push(token);
                 continue;
             }
