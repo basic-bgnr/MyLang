@@ -124,6 +124,10 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    fn reset_index_at(&mut self, new_index: usize) {
+        self.index = new_index;
+    }
+
     fn get_alphanumeric_token(&self, start_index: usize, end_index: usize) -> Option<Token<'a>> {
         if start_index >= end_index {
             None
@@ -161,6 +165,7 @@ impl<'a> Tokenizer<'a> {
             match self.peek() {
                 Some(&chr) if chr == c => self.advance(),
                 _ => {
+                    self.reset_index_at(initial_index);
                     return None;
                 }
             }
