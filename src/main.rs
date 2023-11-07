@@ -1,11 +1,11 @@
 use std::io::Write;
 
-fn main() {
-    println!("{:?}", test());
+fn main() -> Result<(), String> {
+    test()
 }
 
 fn test() -> Result<(), String> {
-    loop {
+    'loop_start: loop {
         let mut line = String::new();
         print!(">>> ");
 
@@ -14,13 +14,33 @@ fn test() -> Result<(), String> {
 
         let input_chars = line.trim_end().chars().collect::<Vec<_>>();
 
+        if input_chars.len() == 0 {
+            continue 'loop_start;
+        }
+
         let mut tokenizer = Tokenizer::new(&input_chars);
-        let tokens = tokenizer.tokenize()?;
+        let tokens = tokenizer.tokenize();
 
-        let mut parser = Parser::new(&tokens);
-        let result = parser.parse()?;
+        match tokens {
+            Ok(token_list) => {
+                let mut parser = Parser::new(&token_list);
+                let ast = parser.parse();
 
-        println!("{:}", result.calculate());
+                match ast {
+                    Ok(result) => {
+                        println!("{:}", result.calculate());
+                    }
+                    Err(err) => {
+                        println!("{:?}", err);
+                        continue 'loop_start;
+                    }
+                }
+            }
+            Err(err) => {
+                println!("{:?}", err);
+                continue 'loop_start;
+            }
+        }
     }
 }
 
