@@ -120,11 +120,16 @@ impl<'a> Tokenizer<'a> {
             line_number: 1,
         }
     }
+    fn get_token_info(&self) -> TokenInfo {
+        TokenInfo {
+            line_number: self.line_number,
+            column_number: self.column_number,
         }
     }
 
     fn advance(&mut self) {
         self.index += 1;
+        self.column_number += 1;
     }
 
     fn peek(&self) -> Option<&char> {
