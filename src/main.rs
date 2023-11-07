@@ -87,7 +87,7 @@ impl OperatorToken {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 enum Token<'a> {
     Number(f64),
     Alphanumeric(&'a [char]),
@@ -259,10 +259,13 @@ impl<'a> Parser<'a> {
 
     fn parse(&mut self) -> Result<Either, String> {
         let return_value = self.parse_term()?;
-        if self.peek_and_match(&Token::EOF) {
-            return Ok(return_value);
+        match self.peek() {
+            Some(Token::EOF) => {
+                self.advance();
+                Ok(return_value)
+            }
+            _ => Err(format!("Parsing Error at: {:} ", self.index)),
         }
-        return Err(format!("Parsing Error at: {:} ", self.index));
     }
 
     fn advance(&mut self) -> Option<&Token> {
@@ -275,11 +278,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn peek_and_match(&self, token: &Token) -> bool {
+    fn peek(&self) -> Option<&Token<'a>> {
         if self.index < self.len {
-            &self.tokens[self.index] == token
+            Some(&self.tokens[self.index])
         } else {
-            false
+            None
         }
     }
 
@@ -287,27 +290,20 @@ impl<'a> Parser<'a> {
         let mut first_expression = self.parse_prod()?;
 
         loop {
-            if self.peek_and_match(&Token::Operator(OperatorToken::PLUS)) {
-                self.advance();
-                let expr = BinaryExpression::new(
-                    first_expression,
-                    self.parse_prod()?,
-                    OperatorToken::PLUS,
-                );
-                first_expression = expr;
-                continue;
+            match self.peek().cloned() {
+                Some(Token::Operator(
+                    operator_token @ (OperatorToken::PLUS | OperatorToken::MINUS),
+                )) => {
+                    self.advance();
+                    let expr =
+                        BinaryExpression::new(first_expression, self.parse_prod()?, operator_token);
+                    first_expression = expr;
+                    continue;
+                }
+                _ => {
+                    return Ok(first_expression);
+                }
             }
-            if self.peek_and_match(&Token::Operator(OperatorToken::MINUS)) {
-                self.advance();
-                let expr = BinaryExpression::new(
-                    first_expression,
-                    self.parse_prod()?,
-                    OperatorToken::MINUS,
-                );
-                first_expression = expr;
-                continue;
-            }
-            return Ok(first_expression);
         }
     }
 
@@ -315,65 +311,55 @@ impl<'a> Parser<'a> {
         let mut first_expression = self.parse_unary()?;
 
         loop {
-            if self.peek_and_match(&Token::Operator(OperatorToken::STAR)) {
-                self.advance();
-                let expr = BinaryExpression::new(
-                    first_expression,
-                    self.parse_unary()?,
-                    OperatorToken::STAR,
-                );
-                first_expression = expr;
-                continue;
+            match self.peek().cloned() {
+                Some(Token::Operator(
+                    operator_token @ (OperatorToken::STAR | OperatorToken::DIVIDE),
+                )) => {
+                    self.advance();
+                    let expr =
+                        BinaryExpression::new(first_expression, self.parse_prod()?, operator_token);
+                    first_expression = expr;
+                    continue;
+                }
+                _ => {
+                    return Ok(first_expression);
+                }
             }
-
-            if self.peek_and_match(&Token::Operator(OperatorToken::DIVIDE)) {
-                self.advance();
-                let expr = BinaryExpression::new(
-                    first_expression,
-                    self.parse_unary()?,
-                    OperatorToken::DIVIDE,
-                );
-                first_expression = expr;
-                continue;
-            }
-            return Ok(first_expression);
         }
     }
 
     fn parse_unary(&mut self) -> Result<Either, String> {
-        if self.peek_and_match(&Token::Operator(OperatorToken::PLUS)) {
-            let operator = self.advance();
-            let expr = UnaryExpression::new(self.parse_unary()?, OperatorToken::PLUS);
-            return Ok(expr);
+        match self.peek().cloned() {
+            Some(Token::Operator(operator @ (OperatorToken::PLUS | OperatorToken::MINUS))) => {
+                self.advance();
+                let expr = UnaryExpression::new(self.parse_unary()?, operator);
+                Ok(expr)
+            }
+            _ => self.parse_bracket(),
         }
-
-        if self.peek_and_match(&Token::Operator(OperatorToken::MINUS)) {
-            let operator = self.advance();
-            let expr = UnaryExpression::new(self.parse_unary()?, OperatorToken::MINUS);
-            return Ok(expr);
-        }
-        self.parse_bracket()
     }
 
     fn parse_bracket(&mut self) -> Result<Either, String> {
-        if self.peek_and_match(&Token::Symbol(SymbolToken::SmallBracketOpen)) {
-            self.advance();
-            let val = self.parse_term()?;
-            if self.peek_and_match(&Token::Symbol(SymbolToken::SmallBracketClose)) {
+        match self.peek().cloned() {
+            Some(Token::Symbol(SymbolToken::SmallBracketOpen)) => {
                 self.advance();
-                Ok(val)
-            } else {
-                Err(format!("Error no closing bracket at {}", self.index))
+                let val = self.parse_term()?;
+                match self.peek().cloned() {
+                    Some(Token::Symbol(SymbolToken::SmallBracketClose)) => {
+                        self.advance();
+                        Ok(val)
+                    }
+                    _ => Err(format!("Error: No closing bracket found: {}", self.index)),
+                }
             }
-        } else {
-            self.parse_number()
+            _ => self.parse_number(),
         }
     }
 
     fn parse_number(&mut self) -> Result<Either, String> {
         match self.advance() {
             Some(&Token::Number(val)) => Ok(Either::Number(val)),
-            a @ _ => Err(format!(
+            _ => Err(format!(
                 "Error parsing Number at token index {}",
                 self.index
             )),
