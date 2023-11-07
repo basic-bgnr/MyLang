@@ -154,7 +154,9 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn reset_index_at(&mut self, new_index: usize) {
+        let index_diff = self.index - new_index;
         self.index = new_index;
+        self.column_number -= index_diff;
     }
 
     fn get_alphanumeric_token(&self, start_index: usize, end_index: usize) -> Option<Token<'a>> {
@@ -202,14 +204,24 @@ impl<'a> Tokenizer<'a> {
         self.get_alphanumeric_token(initial_index, self.index)
     }
     fn match_number(&mut self) -> Option<Token<'a>> {
+        let initial_index = self.index;
+
         let valid_numbers = "0123456789";
         let token_info = self.get_token_info();
+
         match self.match_many_in_blob(valid_numbers) {
+            Some(Token::Alphanumeric(a)) if a.len() == 1 => Some(Token::Number(
+                a.iter().collect::<String>().parse().unwrap(),
+                token_info,
+            )),
             Some(Token::Alphanumeric(a)) if a[0] != '0' => Some(Token::Number(
                 a.iter().collect::<String>().parse().unwrap(),
                 token_info,
             )),
-            _ => None,
+            _ => {
+                self.reset_index_at(initial_index);
+                None
+            }
         }
     }
     fn match_operator(&mut self) -> Option<Token<'a>> {
