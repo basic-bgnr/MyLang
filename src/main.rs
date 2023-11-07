@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{format, io::Write, unreachable};
 
 fn main() -> Result<(), String> {
     test()
@@ -89,14 +89,27 @@ impl OperatorToken {
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 enum Token<'a> {
-    Number(f64),
-    Alphanumeric(&'a [char]),
-    Operator(OperatorToken),
-    Symbol(SymbolToken),
-    WhiteSpace,
-    EOF,
-}
+    Number(f64, TokenInfo),
+    Operator(OperatorToken, TokenInfo),
+    Symbol(SymbolToken, TokenInfo),
+    EOF(TokenInfo),
 
+    Alphanumeric(&'a [char]),
+    WhiteSpace,
+}
+impl<'a> Token<'a> {
+    fn get_token_info(&self) -> &TokenInfo {
+        match self {
+            Self::Number(_, token_info) => token_info,
+            Self::Operator(_, token_info) => token_info,
+            Self::Symbol(_, token_info) => token_info,
+            Self::EOF(token_info) => token_info,
+
+            Self::WhiteSpace => unreachable!(),
+            Self::Alphanumeric(_) => unreachable!(),
+        }
+    }
+}
 #[derive(PartialEq, Debug, Clone, Copy)]
 struct TokenInfo {
     line_number: usize,
@@ -190,18 +203,21 @@ impl<'a> Tokenizer<'a> {
     }
     fn match_number(&mut self) -> Option<Token<'a>> {
         let valid_numbers = "0123456789";
+        let token_info = self.get_token_info();
         match self.match_many_in_blob(valid_numbers) {
-            Some(Token::Alphanumeric(a)) if a[0] != '0' => {
-                Some(Token::Number(a.iter().collect::<String>().parse().unwrap()))
-            }
+            Some(Token::Alphanumeric(a)) if a[0] != '0' => Some(Token::Number(
+                a.iter().collect::<String>().parse().unwrap(),
+                token_info,
+            )),
             _ => None,
         }
     }
     fn match_operator(&mut self) -> Option<Token<'a>> {
+        let token_info = self.get_token_info();
         for operator_token in OperatorToken::get_all() {
             match self.match_exact_in_blob(operator_token.value()) {
                 Some(Token::Alphanumeric(a)) if operator_token.is_equal(a) => {
-                    return Some(Token::Operator(operator_token));
+                    return Some(Token::Operator(operator_token, token_info));
                 }
                 _ => {
                     continue;
@@ -211,10 +227,11 @@ impl<'a> Tokenizer<'a> {
         None
     }
     fn match_symbol(&mut self) -> Option<Token<'a>> {
+        let token_info = self.get_token_info();
         for symbol_token in SymbolToken::get_all() {
             match self.match_exact_in_blob(symbol_token.value()) {
                 Some(Token::Alphanumeric(a)) if symbol_token.is_equal(a) => {
-                    return Some(Token::Symbol(symbol_token));
+                    return Some(Token::Symbol(symbol_token, token_info));
                 }
                 _ => {
                     continue;
@@ -248,12 +265,14 @@ impl<'a> Tokenizer<'a> {
                 tokens.push(token);
                 continue;
             }
+            let token_info = self.get_token_info();
             return Result::Err(format!(
-                "Unknown Token (Tokenizing Error) at index: {}",
-                self.index
+                "Tokenizing Error: Unknown token at line {}, column {}",
+                token_info.line_number, token_info.column_number
             ));
         }
-        tokens.push(Token::EOF);
+        let token_info = self.get_token_info();
+        tokens.push(Token::EOF(token_info));
         return Result::Ok(tokens);
     }
 }
@@ -276,11 +295,13 @@ impl<'a> Parser<'a> {
     fn parse(&mut self) -> Result<Either, String> {
         let return_value = self.parse_term()?;
         match self.peek() {
-            Some(Token::EOF) => {
-                self.advance();
-                Ok(return_value)
-            }
-            _ => Err(format!("Parsing Error at: {:} ", self.index)),
+            Some(Token::EOF(_)) => Ok(return_value),
+            Some(token) => Err(format!(
+                "Parsing Error at: {} {}",
+                token.get_token_info().line_number,
+                token.get_token_info().column_number
+            )),
+            None => Err(format!("Parsing Error: None value encountered")),
         }
     }
 
@@ -309,6 +330,7 @@ impl<'a> Parser<'a> {
             match self.peek().cloned() {
                 Some(Token::Operator(
                     operator_token @ (OperatorToken::PLUS | OperatorToken::MINUS),
+                    _,
                 )) => {
                     self.advance();
                     let expr =
@@ -330,6 +352,7 @@ impl<'a> Parser<'a> {
             match self.peek().cloned() {
                 Some(Token::Operator(
                     operator_token @ (OperatorToken::STAR | OperatorToken::DIVIDE),
+                    _,
                 )) => {
                     self.advance();
                     let expr =
@@ -346,7 +369,7 @@ impl<'a> Parser<'a> {
 
     fn parse_unary(&mut self) -> Result<Either, String> {
         match self.peek().cloned() {
-            Some(Token::Operator(operator @ (OperatorToken::PLUS | OperatorToken::MINUS))) => {
+            Some(Token::Operator(operator @ (OperatorToken::PLUS | OperatorToken::MINUS), _)) => {
                 self.advance();
                 let expr = UnaryExpression::new(self.parse_unary()?, operator);
                 Ok(expr)
@@ -357,15 +380,20 @@ impl<'a> Parser<'a> {
 
     fn parse_bracket(&mut self) -> Result<Either, String> {
         match self.peek().cloned() {
-            Some(Token::Symbol(SymbolToken::SmallBracketOpen)) => {
+            Some(Token::Symbol(SymbolToken::SmallBracketOpen, _)) => {
                 self.advance();
                 let val = self.parse_term()?;
                 match self.peek().cloned() {
-                    Some(Token::Symbol(SymbolToken::SmallBracketClose)) => {
+                    Some(Token::Symbol(SymbolToken::SmallBracketClose, _)) => {
                         self.advance();
                         Ok(val)
                     }
-                    _ => Err(format!("Error: No closing bracket found: {}", self.index)),
+                    Some(token) => Err(format!(
+                        "Parsing Error: No closing bracket found at line {}, column {}",
+                        token.get_token_info().line_number,
+                        token.get_token_info().column_number
+                    )),
+                    None => Err(format!("Parsing Error: None value encountered")),
                 }
             }
             _ => self.parse_number(),
@@ -373,12 +401,17 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_number(&mut self) -> Result<Either, String> {
-        match self.advance() {
-            Some(&Token::Number(val)) => Ok(Either::Number(val)),
-            _ => Err(format!(
-                "Error parsing Number at token index {}",
-                self.index
+        match self.peek().cloned() {
+            Some(Token::Number(val, _)) => {
+                self.advance();
+                Ok(Either::Number(val))
+            }
+            Some(token) => Err(format!(
+                "Parsing Error: Value other than number encountered at line {}, column {}",
+                token.get_token_info().line_number,
+                token.get_token_info().column_number
             )),
+            None => Err(format!("Parsing Error: None value encountered")),
         }
     }
 }
