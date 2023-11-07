@@ -63,6 +63,9 @@ impl OperatorToken {
             Self::DIVIDE => "/",
         }
     }
+    fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
+        check_with.iter().collect::<String>() == self.value()
+    }
 }
 
 #[derive(PartialEq, Debug)]
@@ -156,9 +159,7 @@ impl<'a> Tokenizer<'a> {
     fn match_operator(&mut self) -> Option<Token<'a>> {
         for operator_token in OperatorToken::get_all() {
             match self.match_exact_in_blob(operator_token.value()) {
-                Some(Token::Alphanumeric(a))
-                    if &a.iter().collect::<String>() == operator_token.value() =>
-                {
+                Some(Token::Alphanumeric(a)) if operator_token.is_equal(a) => {
                     return Some(Token::Operator(operator_token));
                 }
                 _ => {
