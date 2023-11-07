@@ -355,8 +355,11 @@ impl<'a> Parser<'a> {
                     _,
                 )) => {
                     self.advance();
-                    let expr =
-                        BinaryExpression::new(first_expression, self.parse_prod()?, operator_token);
+                    let expr = BinaryExpression::new(
+                        first_expression,
+                        self.parse_unary()?,
+                        operator_token,
+                    );
                     first_expression = expr;
                     continue;
                 }
