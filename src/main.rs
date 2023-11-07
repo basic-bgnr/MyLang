@@ -312,22 +312,22 @@ impl<'a> Parser<'a> {
         loop {
             if self.peek_and_match(&Token::Operator(OperatorToken::STAR)) {
                 self.advance();
-                let expr = Either::BinaryExpression(Box::new(BinaryExpression {
-                    left: first_expression,
-                    right: self.parse_unary()?,
-                    operator: OperatorToken::STAR,
-                }));
+                let expr = BinaryExpression::new(
+                    first_expression,
+                    self.parse_unary()?,
+                    OperatorToken::STAR,
+                );
                 first_expression = expr;
                 continue;
             }
 
             if self.peek_and_match(&Token::Operator(OperatorToken::DIVIDE)) {
                 self.advance();
-                let expr = Either::BinaryExpression(Box::new(BinaryExpression {
-                    left: first_expression,
-                    right: self.parse_unary()?,
-                    operator: OperatorToken::DIVIDE,
-                }));
+                let expr = BinaryExpression::new(
+                    first_expression,
+                    self.parse_unary()?,
+                    OperatorToken::DIVIDE,
+                );
                 first_expression = expr;
                 continue;
             }
