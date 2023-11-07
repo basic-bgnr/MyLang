@@ -347,7 +347,22 @@ impl<'a> Parser<'a> {
             let expr = UnaryExpression::new(self.parse_unary()?, OperatorToken::MINUS);
             return Ok(expr);
         }
-        self.parse_number()
+        self.parse_bracket()
+    }
+
+    fn parse_bracket(&mut self) -> Result<Either, String> {
+        if self.peek_and_match(&Token::Symbol(SymbolToken::SmallBracketOpen)) {
+            self.advance();
+            let val = self.parse_term()?;
+            if self.peek_and_match(&Token::Symbol(SymbolToken::SmallBracketClose)) {
+                self.advance();
+                Ok(val)
+            } else {
+                Err(format!("Error no closing bracket at {}", self.index))
+            }
+        } else {
+            self.parse_number()
+        }
     }
 
     fn parse_number(&mut self) -> Result<Either, String> {
