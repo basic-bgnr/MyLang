@@ -48,15 +48,17 @@ fn test() -> Result<(), String> {
 enum SymbolToken {
     SmallBracketOpen,
     SmallBracketClose,
+    Dot,
 }
 impl SymbolToken {
-    fn get_all() -> [SymbolToken; 2] {
-        [Self::SmallBracketOpen, Self::SmallBracketClose]
+    fn get_all() -> [SymbolToken; 3] {
+        [Self::SmallBracketOpen, Self::SmallBracketClose, Self::Dot]
     }
     fn value(&self) -> &str {
         match self {
             Self::SmallBracketOpen => "(",
             Self::SmallBracketClose => ")",
+            Self::Dot => ".",
         }
     }
     fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
@@ -207,17 +209,41 @@ impl<'a> Tokenizer<'a> {
         let initial_index = self.index;
 
         let valid_numbers = "0123456789";
-        let token_info = self.get_token_info();
-
         match self.match_many_in_blob(valid_numbers) {
-            Some(Token::Alphanumeric(a)) if a.len() == 1 => Some(Token::Number(
-                a.iter().collect::<String>().parse().unwrap(),
-                token_info,
-            )),
-            Some(Token::Alphanumeric(a)) if a[0] != '0' => Some(Token::Number(
-                a.iter().collect::<String>().parse().unwrap(),
-                token_info,
-            )),
+            Some(Token::Alphanumeric(a)) => {
+                let before_dot = a.iter().collect::<String>();
+                if before_dot.len() > 1 && before_dot.chars().nth(0).unwrap() == '0' {
+                    self.reset_index_at(initial_index);
+                    None
+                } else {
+                    match self.peek() {
+                        Some(&chr) if SymbolToken::Dot.value().chars().nth(0).unwrap() == chr => {
+                            self.advance();
+                            let after_dot = self.match_many_in_blob(valid_numbers);
+                            match after_dot {
+                                Some(Token::Alphanumeric(b)) => {
+                                    let number = before_dot + "." + &b.iter().collect::<String>();
+                                    Some(Token::Number(
+                                        number.parse().unwrap(),
+                                        self.get_token_info(),
+                                    ))
+                                }
+                                _ => {
+                                    let number = before_dot + ".";
+                                    Some(Token::Number(
+                                        number.parse().unwrap(),
+                                        self.get_token_info(),
+                                    ))
+                                }
+                            }
+                        }
+                        _ => Some(Token::Number(
+                            before_dot.parse().unwrap(),
+                            self.get_token_info(),
+                        )),
+                    }
+                }
+            }
             _ => {
                 self.reset_index_at(initial_index);
                 None
