@@ -91,7 +91,7 @@ impl OperatorToken {
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 enum Token<'a> {
-    Number(f64, TokenInfo),
+    Digit(&'a char, TokenInfo),
     Operator(OperatorToken, TokenInfo),
     Symbol(SymbolToken, TokenInfo),
     EOF(TokenInfo),
@@ -102,7 +102,7 @@ enum Token<'a> {
 impl<'a> Token<'a> {
     fn get_token_info(&self) -> &TokenInfo {
         match self {
-            Self::Number(_, token_info) => token_info,
+            Self::Digit(_, token_info) => token_info,
             Self::Operator(_, token_info) => token_info,
             Self::Symbol(_, token_info) => token_info,
             Self::EOF(token_info) => token_info,
@@ -205,51 +205,7 @@ impl<'a> Tokenizer<'a> {
         }
         self.get_alphanumeric_token(initial_index, self.index)
     }
-    fn match_number(&mut self) -> Option<Token<'a>> {
-        let initial_index = self.index;
 
-        let valid_numbers = "0123456789";
-        match self.match_many_in_blob(valid_numbers) {
-            Some(Token::Alphanumeric(a)) => {
-                let before_dot = a.iter().collect::<String>();
-                if before_dot.len() > 1 && before_dot.chars().nth(0).unwrap() == '0' {
-                    self.reset_index_at(initial_index);
-                    None
-                } else {
-                    match self.peek() {
-                        Some(&chr) if SymbolToken::Dot.value().chars().nth(0).unwrap() == chr => {
-                            self.advance();
-                            let after_dot = self.match_many_in_blob(valid_numbers);
-                            match after_dot {
-                                Some(Token::Alphanumeric(b)) => {
-                                    let number = before_dot + "." + &b.iter().collect::<String>();
-                                    Some(Token::Number(
-                                        number.parse().unwrap(),
-                                        self.get_token_info(),
-                                    ))
-                                }
-                                _ => {
-                                    let number = before_dot + ".";
-                                    Some(Token::Number(
-                                        number.parse().unwrap(),
-                                        self.get_token_info(),
-                                    ))
-                                }
-                            }
-                        }
-                        _ => Some(Token::Number(
-                            before_dot.parse().unwrap(),
-                            self.get_token_info(),
-                        )),
-                    }
-                }
-            }
-            _ => {
-                self.reset_index_at(initial_index);
-                None
-            }
-        }
-    }
     fn match_operator(&mut self) -> Option<Token<'a>> {
         let token_info = self.get_token_info();
         for operator_token in OperatorToken::get_all() {
@@ -285,9 +241,18 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn tokenize(&mut self) -> Result<Vec<Token>, String> {
+    fn match_digit(&mut self) -> Option<Token<'a>> {
+        let token_info = self.get_token_info();
+        match self.match_any_in_blob("0123456789") {
+            Some(Token::Alphanumeric(chr)) => Some(Token::Digit(chr.first().unwrap(), token_info)),
+            _ => None,
+        }
+    }
+
+    fn tokenize(&mut self) -> Result<Vec<Token>, Vec<String>> {
         let mut tokens = Vec::new();
-        while self.peek() != None {
+        let mut tokenization_errors = vec![];
+        while self.peek().is_some() {
             if let Some(_) = self.match_whitespace() {
                 continue;
             }
@@ -295,7 +260,7 @@ impl<'a> Tokenizer<'a> {
                 tokens.push(token);
                 continue;
             }
-            if let Some(token) = self.match_number() {
+            if let Some(token) = self.match_digit() {
                 tokens.push(token);
                 continue;
             }
@@ -304,14 +269,19 @@ impl<'a> Tokenizer<'a> {
                 continue;
             }
             let token_info = self.get_token_info();
-            return Result::Err(format!(
+            tokenization_errors.push(format!(
                 "Tokenizing Error: Unknown token at line {}, column {}",
                 token_info.line_number, token_info.column_number
             ));
+            self.advance();
         }
-        let token_info = self.get_token_info();
-        tokens.push(Token::EOF(token_info));
-        return Result::Ok(tokens);
+        if tokenization_errors.len() > 0 {
+            Err(tokenization_errors)
+        } else {
+            let token_info = self.get_token_info();
+            tokens.push(Token::EOF(token_info));
+            Result::Ok(tokens)
+        }
     }
 }
 
@@ -443,9 +413,43 @@ impl<'a> Parser<'a> {
 
     fn parse_number(&mut self) -> Result<Either, String> {
         match self.peek().cloned() {
-            Some(Token::Number(val, _)) => {
+            Some(Token::Digit(first_digit, _)) => {
+                let mut digits = vec![first_digit];
+                let mut num_of_dot = 0;
                 self.advance();
-                Ok(Either::Number(val))
+                loop {
+                    match self.peek().cloned() {
+                        Some(Token::Symbol(SymbolToken::Dot, _)) if num_of_dot < 1 => {
+                            self.advance();
+                            num_of_dot += 1;
+                            digits.push(&'.');
+                        }
+                        Some(Token::Symbol(SymbolToken::Dot, token_info_symbol))
+                            if num_of_dot >= 1 =>
+                        {
+                            return Err(format!(
+                "Parsing Error: Decimal(.) parsing error encountered at line {}, column {}",
+                token_info_symbol.line_number,
+                token_info_symbol.column_number
+            ))
+                        }
+                        Some(Token::Digit(val, _)) => {
+                            self.advance();
+                            digits.push(val);
+                        }
+
+                        _ => {
+                            break;
+                        }
+                    }
+                }
+                Ok(Either::Number(
+                    digits
+                        .into_iter()
+                        .collect::<String>()
+                        .parse::<f64>()
+                        .unwrap(),
+                ))
             }
             Some(token) => Err(format!(
                 "Parsing Error: Value other than number encountered at line {}, column {}",
