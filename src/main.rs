@@ -45,20 +45,48 @@ fn test() -> Result<(), String> {
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
+enum KeywordToken {
+    Let,
+}
+impl KeywordToken {
+    fn get_all() -> [KeywordToken; 1] {
+        [Self::Let]
+    }
+    fn value(&self) -> &str {
+        match self {
+            Self::Let => "let",
+        }
+    }
+    fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
+        check_with.iter().collect::<String>() == self.value()
+    }
+}
+
+#[derive(PartialEq, Debug, Clone, Copy)]
 enum SymbolToken {
     SmallBracketOpen,
     SmallBracketClose,
     Dot,
+    Equal,
+    UnderScore,
 }
 impl SymbolToken {
-    fn get_all() -> [SymbolToken; 3] {
-        [Self::SmallBracketOpen, Self::SmallBracketClose, Self::Dot]
+    fn get_all() -> [SymbolToken; 5] {
+        [
+            Self::SmallBracketOpen,
+            Self::SmallBracketClose,
+            Self::Dot,
+            Self::Equal,
+            Self::UnderScore,
+        ]
     }
     fn value(&self) -> &str {
         match self {
             Self::SmallBracketOpen => "(",
             Self::SmallBracketClose => ")",
             Self::Dot => ".",
+            Self::Equal => "=",
+            Self::UnderScore => "_",
         }
     }
     fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
@@ -92,22 +120,32 @@ impl OperatorToken {
 #[derive(PartialEq, Debug, Clone, Copy)]
 enum Token<'a> {
     Digit(&'a char, TokenInfo),
+    Alphabet(&'a char, TokenInfo),
+    Identifier(&'a [char], TokenInfo),
+
     Operator(OperatorToken, TokenInfo),
     Symbol(SymbolToken, TokenInfo),
+
+    Keyword(KeywordToken, TokenInfo),
+
+    WhiteSpace(TokenInfo),
+
     EOF(TokenInfo),
 
     Alphanumeric(&'a [char]),
-    WhiteSpace,
 }
 impl<'a> Token<'a> {
     fn get_token_info(&self) -> &TokenInfo {
         match self {
             Self::Digit(_, token_info) => token_info,
+            Self::Alphabet(_, token_info) => token_info,
+            Self::Identifier(_, token_info) => token_info,
             Self::Operator(_, token_info) => token_info,
             Self::Symbol(_, token_info) => token_info,
+            Self::Keyword(_, token_info) => token_info,
             Self::EOF(token_info) => token_info,
 
-            Self::WhiteSpace => unreachable!(),
+            Self::WhiteSpace(token_info) => token_info,
             Self::Alphanumeric(_) => unreachable!(),
         }
     }
@@ -235,8 +273,9 @@ impl<'a> Tokenizer<'a> {
         None
     }
     fn match_whitespace(&mut self) -> Option<Token<'a>> {
+        let token_info = self.get_token_info();
         match self.match_many_in_blob(" ") {
-            Some(_) => Some(Token::WhiteSpace),
+            Some(_) => Some(Token::WhiteSpace(token_info)),
             _ => None,
         }
     }
@@ -248,15 +287,50 @@ impl<'a> Tokenizer<'a> {
             _ => None,
         }
     }
+    fn match_alphabet(&mut self) -> Option<Token<'a>> {
+        let blob = ('a'..='z').chain('A'..='Z').collect::<String>();
+        let token_info = self.get_token_info();
+        match self.match_any_in_blob(&blob) {
+            Some(Token::Alphanumeric(chr)) => {
+                Some(Token::Alphabet(chr.first().unwrap(), token_info))
+            }
+            _ => None,
+        }
+    }
+    fn match_identifier(&mut self) -> Option<Token<'a>> {
+        let blob = ('a'..='z').chain('A'..='Z').collect::<String>();
+        let token_info = self.get_token_info();
+        match self.match_many_in_blob(&blob) {
+            Some(Token::Alphanumeric(chr)) => Some(Token::Identifier(chr, token_info)),
+            _ => None,
+        }
+    }
+    fn match_keyword(&mut self) -> Option<Token<'a>> {
+        let token_info = self.get_token_info();
+        let initial_index = self.index;
+        for keyword_token in KeywordToken::get_all() {
+            match self.match_exact_in_blob(keyword_token.value()) {
+                Some(Token::Alphanumeric(a)) if keyword_token.is_equal(a) => {
+                    if self.peek() == Some(&' ') {
+                        return Some(Token::Keyword(keyword_token, token_info));
+                    } else {
+                        self.reset_index_at(initial_index);
+                        return None;
+                    }
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+        None
+    }
 
     fn tokenize(&mut self) -> Result<Vec<Token>, Vec<String>> {
         let mut tokens = Vec::new();
         let mut tokenization_errors = vec![];
         while self.peek().is_some() {
-            if let Some(_) = self.match_whitespace() {
-                continue;
-            }
-            if let Some(token) = self.match_operator() {
+            if let Some(token) = self.match_keyword() {
                 tokens.push(token);
                 continue;
             }
@@ -264,7 +338,19 @@ impl<'a> Tokenizer<'a> {
                 tokens.push(token);
                 continue;
             }
+            if let Some(token) = self.match_identifier() {
+                tokens.push(token);
+                continue;
+            }
+            if let Some(token) = self.match_operator() {
+                tokens.push(token);
+                continue;
+            }
             if let Some(token) = self.match_symbol() {
+                tokens.push(token);
+                continue;
+            }
+            if let Some(token) = self.match_whitespace() {
                 tokens.push(token);
                 continue;
             }
@@ -280,6 +366,7 @@ impl<'a> Tokenizer<'a> {
         } else {
             let token_info = self.get_token_info();
             tokens.push(Token::EOF(token_info));
+            println!("{:?}", tokens);
             Result::Ok(tokens)
         }
     }
@@ -301,7 +388,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse(&mut self) -> Result<Either, String> {
-        let return_value = self.parse_term()?;
+        let return_value = self.parse_let_statement()?;
         match self.peek() {
             Some(Token::EOF(_)) => Ok(return_value),
             Some(token) => Err(format!(
@@ -331,6 +418,61 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn consume_optional_whitespace(&mut self) {
+        if let Some(Token::WhiteSpace(_)) = self.peek() {
+            self.advance();
+        }
+    }
+
+    fn parse_let_statement(&mut self) -> Result<Either, String> {
+        match self.peek().cloned() {
+            Some(Token::Keyword(keyword, token_info))
+                if keyword.value() == KeywordToken::Let.value() =>
+            {
+                self.advance();
+                self.advance(); //consume whitespace
+                match self.peek().cloned() {
+                    Some(Token::Identifier(identifier, iden_token_info)) => {
+                        self.advance();
+                        self.consume_optional_whitespace();
+                        match self.peek().cloned() {
+                            Some(Token::Symbol(symbol, _))
+                                if symbol.value() == SymbolToken::Equal.value() =>
+                            {
+                                self.advance();
+                                self.consume_optional_whitespace();
+                                // self.parse_term()
+                                Ok(LetStatement::new(
+                                    identifier.iter().collect(),
+                                    self.parse_term()?,
+                                ))
+                            }
+                            Some(token) => Err(format!(
+                                "Parsing Error: No equal found at line {}, column {}",
+                                token.get_token_info().line_number,
+                                token.get_token_info().column_number
+                            )),
+                            None => Err(format!(
+                                "Parsing Error: None value encountered at line {}, {}",
+                                iden_token_info.line_number, iden_token_info.column_number
+                            )),
+                        }
+                    }
+                    Some(token) => Err(format!(
+                        "Parsing Error: No closing bracket found at line {}, column {}",
+                        token.get_token_info().line_number,
+                        token.get_token_info().column_number
+                    )),
+                    None => Err(format!(
+                        "Parsing Error: No closing bracket found at line {}, column {}",
+                        token_info.line_number, token_info.column_number
+                    )),
+                }
+            }
+            _ => self.parse_term(),
+        }
+    }
+
     fn parse_term(&mut self) -> Result<Either, String> {
         let mut first_expression = self.parse_prod()?;
 
@@ -344,6 +486,10 @@ impl<'a> Parser<'a> {
                     let expr =
                         BinaryExpression::new(first_expression, self.parse_prod()?, operator_token);
                     first_expression = expr;
+                    continue;
+                }
+                Some(Token::WhiteSpace(_)) => {
+                    self.advance();
                     continue;
                 }
                 _ => {
@@ -371,6 +517,10 @@ impl<'a> Parser<'a> {
                     first_expression = expr;
                     continue;
                 }
+                Some(Token::WhiteSpace(_)) => {
+                    self.advance();
+                    continue;
+                }
                 _ => {
                     return Ok(first_expression);
                 }
@@ -385,6 +535,10 @@ impl<'a> Parser<'a> {
                 let expr = UnaryExpression::new(self.parse_unary()?, operator);
                 Ok(expr)
             }
+            Some(Token::WhiteSpace(_)) => {
+                self.advance();
+                self.parse_unary()
+            }
             _ => self.parse_bracket(),
         }
     }
@@ -398,6 +552,10 @@ impl<'a> Parser<'a> {
                     Some(Token::Symbol(SymbolToken::SmallBracketClose, _)) => {
                         self.advance();
                         Ok(val)
+                    }
+                    Some(Token::WhiteSpace(_)) => {
+                        self.advance();
+                        self.parse_bracket()
                     }
                     Some(token) => Err(format!(
                         "Parsing Error: No closing bracket found at line {}, column {}",
@@ -430,7 +588,7 @@ impl<'a> Parser<'a> {
                             return Err(format!(
                 "Parsing Error: Decimal(.) parsing error encountered at line {}, column {}",
                 token_info_symbol.line_number,
-                token_info_symbol.column_number
+                token_info_symbol.column_number ,
             ))
                         }
                         Some(Token::Digit(val, _)) => {
@@ -454,7 +612,7 @@ impl<'a> Parser<'a> {
             Some(token) => Err(format!(
                 "Parsing Error: Value other than number encountered at line {}, column {}",
                 token.get_token_info().line_number,
-                token.get_token_info().column_number
+                token.get_token_info().column_number,
             )),
             None => Err(format!("Parsing Error: None value encountered")),
         }
@@ -466,6 +624,7 @@ enum Either {
     Number(f64),
     BinaryExpression(Box<BinaryExpression>),
     UnaryExpression(Box<UnaryExpression>),
+    LetStatement(Box<LetStatement>),
 }
 
 impl Either {
@@ -491,6 +650,12 @@ impl Either {
                     OperatorToken::MINUS | _ => -1.0 * val.calculate(),
                 },
             },
+            Self::LetStatement(boxed_let_statement) => match &**boxed_let_statement {
+                LetStatement { lvalue, rvalue } => {
+                    println!("{:?}", boxed_let_statement);
+                    rvalue.calculate()
+                }
+            },
         }
     }
 }
@@ -503,7 +668,7 @@ struct BinaryExpression {
 }
 impl BinaryExpression {
     fn new(left: Either, right: Either, operator: OperatorToken) -> Either {
-        Either::BinaryExpression(Box::new(BinaryExpression {
+        Either::BinaryExpression(Box::new(Self {
             left: left,
             right: right,
             operator: operator,
@@ -517,9 +682,24 @@ struct UnaryExpression {
 }
 impl UnaryExpression {
     fn new(val: Either, operator: OperatorToken) -> Either {
-        Either::UnaryExpression(Box::new(UnaryExpression {
+        Either::UnaryExpression(Box::new(Self {
             val: val,
             operator: operator,
+        }))
+    }
+}
+
+#[derive(Debug)]
+struct LetStatement {
+    lvalue: String,
+    rvalue: Either,
+}
+
+impl LetStatement {
+    fn new(lvalue: String, rvalue: Either) -> Either {
+        Either::LetStatement(Box::new(Self {
+            lvalue: lvalue,
+            rvalue: rvalue,
         }))
     }
 }
