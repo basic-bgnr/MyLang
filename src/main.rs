@@ -28,7 +28,7 @@ fn test() -> Result<(), String> {
 
                 match ast {
                     Ok(result) => {
-                        println!("{:}", result.calculate());
+                        println!("{:?}", result.calculate());
                     }
                     Err(err) => {
                         println!("{:?}", err);
@@ -47,14 +47,18 @@ fn test() -> Result<(), String> {
 #[derive(PartialEq, Debug, Clone, Copy)]
 enum KeywordToken {
     Let,
+    True,
+    False,
 }
 impl KeywordToken {
-    fn get_all() -> [KeywordToken; 1] {
-        [Self::Let]
+    fn get_all() -> [KeywordToken; 3] {
+        [Self::Let, Self::True, Self::False]
     }
     fn value(&self) -> &str {
         match self {
             Self::Let => "let",
+            Self::True => "true",
+            Self::False => "false",
         }
     }
     fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
@@ -310,14 +314,15 @@ impl<'a> Tokenizer<'a> {
         let initial_index = self.index;
         for keyword_token in KeywordToken::get_all() {
             match self.match_exact_in_blob(keyword_token.value()) {
-                Some(Token::Alphanumeric(a)) if keyword_token.is_equal(a) => {
-                    if self.peek() == Some(&' ') {
-                        return Some(Token::Keyword(keyword_token, token_info));
-                    } else {
+                Some(Token::Alphanumeric(a)) => match self.match_alphabet() {
+                    Some(_) => {
                         self.reset_index_at(initial_index);
                         return None;
                     }
-                }
+                    None => {
+                        return Some(Token::Keyword(keyword_token, token_info));
+                    }
+                },
                 _ => {
                     continue;
                 }
@@ -366,7 +371,7 @@ impl<'a> Tokenizer<'a> {
         } else {
             let token_info = self.get_token_info();
             tokens.push(Token::EOF(token_info));
-            println!("{:?}", tokens);
+            // println!("{:?}", tokens);
             Result::Ok(tokens)
         }
     }
@@ -442,10 +447,8 @@ impl<'a> Parser<'a> {
                                 self.advance();
                                 self.consume_optional_whitespace();
                                 // self.parse_term()
-                                Ok(LetStatement::new(
-                                    identifier.iter().collect(),
-                                    self.parse_term()?,
-                                ))
+                                let term = self.parse_term()?;
+                                Ok(LetStatement::new(identifier.iter().collect(), term))
                             }
                             Some(token) => Err(format!(
                                 "Parsing Error: No equal found at line {}, column {}",
@@ -480,13 +483,24 @@ impl<'a> Parser<'a> {
             match self.peek().cloned() {
                 Some(Token::Operator(
                     operator_token @ (OperatorToken::PLUS | OperatorToken::MINUS),
-                    _,
+                    token_info,
                 )) => {
                     self.advance();
-                    let expr =
-                        BinaryExpression::new(first_expression, self.parse_prod()?, operator_token);
-                    first_expression = expr;
-                    continue;
+                    let second_expression = self.parse_prod()?;
+                    if first_expression.tipe() == second_expression.tipe() {
+                        let expr = BinaryExpression::new(
+                            first_expression,
+                            second_expression,
+                            operator_token,
+                        );
+                        first_expression = expr;
+                        continue;
+                    } else {
+                        return Err(format!(
+                            "Parsing Error: Type mismatched at line {}, column {}",
+                            token_info.line_number, token_info.column_number
+                        ));
+                    }
                 }
                 Some(Token::WhiteSpace(_)) => {
                     self.advance();
@@ -506,16 +520,24 @@ impl<'a> Parser<'a> {
             match self.peek().cloned() {
                 Some(Token::Operator(
                     operator_token @ (OperatorToken::STAR | OperatorToken::DIVIDE),
-                    _,
+                    token_info,
                 )) => {
                     self.advance();
-                    let expr = BinaryExpression::new(
-                        first_expression,
-                        self.parse_unary()?,
-                        operator_token,
-                    );
-                    first_expression = expr;
-                    continue;
+                    let second_expression = self.parse_unary()?;
+                    if first_expression.tipe() == second_expression.tipe() {
+                        let expr = BinaryExpression::new(
+                            first_expression,
+                            second_expression,
+                            operator_token,
+                        );
+                        first_expression = expr;
+                        continue;
+                    } else {
+                        return Err(format!(
+                            "Parsing Error: Type mismatched at line {}, column {}",
+                            token_info.line_number, token_info.column_number
+                        ));
+                    }
                 }
                 Some(Token::WhiteSpace(_)) => {
                     self.advance();
@@ -532,8 +554,10 @@ impl<'a> Parser<'a> {
         match self.peek().cloned() {
             Some(Token::Operator(operator @ (OperatorToken::PLUS | OperatorToken::MINUS), _)) => {
                 self.advance();
-                let expr = UnaryExpression::new(self.parse_unary()?, operator);
-                Ok(expr)
+                let expr = self.parse_unary()?;
+                let tipe = expr.tipe();
+                let unary_expr = UnaryExpression::new(expr, operator);
+                Ok(unary_expr)
             }
             Some(Token::WhiteSpace(_)) => {
                 self.advance();
@@ -609,6 +633,15 @@ impl<'a> Parser<'a> {
                         .unwrap(),
                 ))
             }
+            Some(Token::Keyword(KeywordToken::True, token_info)) => {
+                self.advance();
+                Ok(Either::Bool(true))
+            }
+            Some(Token::Keyword(KeywordToken::False, token_info)) => {
+                self.advance();
+                Ok(Either::Bool(false))
+            }
+
             Some(token) => Err(format!(
                 "Parsing Error: Value other than number encountered at line {}, column {}",
                 token.get_token_info().line_number,
@@ -619,36 +652,51 @@ impl<'a> Parser<'a> {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum LanguageType {
+    Number,
+    Boolean,
+}
 #[derive(Debug)]
 enum Either {
     Number(f64),
     BinaryExpression(Box<BinaryExpression>),
     UnaryExpression(Box<UnaryExpression>),
     LetStatement(Box<LetStatement>),
+    Bool(bool),
 }
 
 impl Either {
-    fn calculate(&self) -> f64 {
+    fn tipe(&self) -> &LanguageType {
         match self {
-            Self::Number(val) => *val,
+            Self::Number(_) => &LanguageType::Number,
+            Self::Bool(_) => &LanguageType::Boolean,
+            Self::BinaryExpression(boxed_binary_expression) => boxed_binary_expression.tipe(),
+            Self::UnaryExpression(boxed_unary_expression) => boxed_unary_expression.tipe(),
+            Self::LetStatement(boxed_let_statement) => boxed_let_statement.tipe(),
+        }
+    }
+    fn calculate(&self) -> InternalDataStucture {
+        match self {
+            Self::Number(val) => InternalDataStucture::Number(*val),
+
+            Self::Bool(val) => InternalDataStucture::Bool(*val),
 
             Self::BinaryExpression(boxed_expression) => match &**boxed_expression {
                 BinaryExpression {
                     left,
                     right,
                     operator,
-                } => match operator {
-                    OperatorToken::PLUS => left.calculate() + right.calculate(),
-                    OperatorToken::MINUS => left.calculate() - right.calculate(),
-                    OperatorToken::STAR => left.calculate() * right.calculate(),
-                    OperatorToken::DIVIDE => left.calculate() / right.calculate(),
-                },
+                } => InternalDataStucture::__match_binary_operation__(
+                    left.calculate(),
+                    right.calculate(),
+                    *operator,
+                ),
             },
             Self::UnaryExpression(boxed_expression) => match &**boxed_expression {
-                UnaryExpression { val, operator } => match operator {
-                    OperatorToken::PLUS => 1.0 * val.calculate(),
-                    OperatorToken::MINUS | _ => -1.0 * val.calculate(),
-                },
+                UnaryExpression { val, operator } => {
+                    InternalDataStucture::__match_unary_operation__(val.calculate(), *operator)
+                }
             },
             Self::LetStatement(boxed_let_statement) => match &**boxed_let_statement {
                 LetStatement { lvalue, rvalue } => {
@@ -657,6 +705,39 @@ impl Either {
                 }
             },
         }
+    }
+}
+
+#[derive(Debug)]
+enum InternalDataStucture {
+    Number(f64),
+    Bool(bool),
+}
+
+impl InternalDataStucture {
+    fn __match_binary_operation__(left: Self, right: Self, operator: OperatorToken) -> Self {
+        if let Self::Number(l) = left {
+            if let Self::Number(r) = right {
+                return match operator {
+                    OperatorToken::PLUS => Self::Number(l + r),
+                    OperatorToken::MINUS => Self::Number(l - r),
+                    OperatorToken::STAR => Self::Number(l * r),
+                    OperatorToken::DIVIDE => Self::Number(l / r),
+                };
+            }
+            unreachable!();
+        }
+        unreachable!();
+    }
+    fn __match_unary_operation__(val: Self, operator: OperatorToken) -> Self {
+        if let Self::Number(v) = val {
+            return match operator {
+                OperatorToken::PLUS => Self::Number(v),
+                OperatorToken::MINUS => Self::Number(-v),
+                _ => unreachable!(),
+            };
+        }
+        unreachable!();
     }
 }
 
@@ -674,6 +755,9 @@ impl BinaryExpression {
             operator: operator,
         }))
     }
+    fn tipe(&self) -> &LanguageType {
+        self.left.tipe()
+    }
 }
 #[derive(Debug)]
 struct UnaryExpression {
@@ -686,6 +770,9 @@ impl UnaryExpression {
             val: val,
             operator: operator,
         }))
+    }
+    fn tipe(&self) -> &LanguageType {
+        self.val.tipe()
     }
 }
 
@@ -701,5 +788,8 @@ impl LetStatement {
             lvalue: lvalue,
             rvalue: rvalue,
         }))
+    }
+    fn tipe(&self) -> &LanguageType {
+        self.rvalue.tipe()
     }
 }
