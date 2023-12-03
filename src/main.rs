@@ -1,10 +1,10 @@
 use std::{format, io::Write, unreachable};
 
-fn main() -> Result<(), String> {
+fn main() {
     test()
 }
 
-fn test() -> Result<(), String> {
+fn test() {
     'loop_start: loop {
         let mut line = String::new();
         print!(">>> ");
@@ -12,35 +12,41 @@ fn test() -> Result<(), String> {
         let _ = std::io::stdout().flush();
         let _ = std::io::stdin().read_line(&mut line).unwrap();
 
-        let input_chars = line.trim_end().chars().collect::<Vec<_>>();
+        let line = line.trim_end();
 
-        if input_chars.len() == 0 {
+        if line.len() == 0 {
             continue 'loop_start;
         }
-
-        let mut tokenizer = Tokenizer::new(&input_chars);
-        let tokens = tokenizer.tokenize();
-
-        match tokens {
-            Ok(token_list) => {
-                let mut parser = Parser::new(&token_list);
-                let ast = parser.parse();
-
-                match ast {
-                    Ok(result) => {
-                        println!("{:?}", result.calculate());
-                    }
-                    Err(err) => {
-                        println!("{:?}", err);
-                        continue 'loop_start;
-                    }
-                }
+        match interpret(line) {
+            Ok(result) => {
+                println!("{:?}", result);
             }
             Err(err) => {
-                println!("{:?}", err);
+                println!("{:}", err);
                 continue 'loop_start;
             }
         }
+    }
+}
+
+fn interpret(program: &str) -> Result<InternalDataStucture, String> {
+    let input_chars = program.chars().collect::<Vec<_>>();
+
+    let mut tokenizer = Tokenizer::new(&input_chars);
+    let tokens = tokenizer.tokenize();
+
+    match tokens {
+        Ok(token_list) => {
+            let mut parser = Parser::new(&token_list);
+            let result = parser.parse()?;
+            Ok(result.calculate())
+        }
+        Err(err) => Err(err
+            .into_iter()
+            .map(|x| x + "\n")
+            .collect::<String>()
+            .trim_end()
+            .to_string()),
     }
 }
 
