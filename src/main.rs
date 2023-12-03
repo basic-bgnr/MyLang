@@ -103,10 +103,23 @@ enum OperatorToken {
     MINUS,
     STAR,
     DIVIDE,
+
+    LOGICAL_AND,
+    LOGICAL_OR,
+
+    LOGICAL_NOT,
 }
 impl OperatorToken {
-    fn get_all() -> [OperatorToken; 4] {
-        [Self::PLUS, Self::MINUS, Self::STAR, Self::DIVIDE]
+    fn get_all() -> [OperatorToken; 7] {
+        [
+            Self::PLUS,
+            Self::MINUS,
+            Self::STAR,
+            Self::DIVIDE,
+            Self::LOGICAL_AND,
+            Self::LOGICAL_OR,
+            Self::LOGICAL_NOT,
+        ]
     }
     fn value(&self) -> &str {
         match self {
@@ -114,6 +127,9 @@ impl OperatorToken {
             Self::MINUS => "-",
             Self::STAR => "*",
             Self::DIVIDE => "/",
+            Self::LOGICAL_AND => "&&",
+            Self::LOGICAL_OR => "||",
+            Self::LOGICAL_NOT => "!",
         }
     }
     fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
@@ -314,7 +330,7 @@ impl<'a> Tokenizer<'a> {
         let initial_index = self.index;
         for keyword_token in KeywordToken::get_all() {
             match self.match_exact_in_blob(keyword_token.value()) {
-                Some(Token::Alphanumeric(a)) => match self.match_alphabet() {
+                Some(Token::Alphanumeric(_)) => match self.match_alphabet() {
                     Some(_) => {
                         self.reset_index_at(initial_index);
                         return None;
@@ -472,7 +488,45 @@ impl<'a> Parser<'a> {
                     )),
                 }
             }
-            _ => self.parse_term(),
+            _ => self.parse_logical_term(),
+        }
+    }
+    fn parse_logical_term(&mut self) -> Result<Either, String> {
+        let mut first_expression = self.parse_term()?;
+
+        loop {
+            match self.peek().cloned() {
+                Some(Token::Operator(
+                    operator_token @ (OperatorToken::LOGICAL_AND | OperatorToken::LOGICAL_OR),
+                    token_info,
+                )) => {
+                    self.advance();
+                    let second_expression = self.parse_term()?;
+                    if first_expression.tipe() == second_expression.tipe()
+                        && first_expression.tipe() == &LanguageType::Boolean
+                    {
+                        let expr = BinaryExpression::new(
+                            first_expression,
+                            second_expression,
+                            operator_token,
+                        );
+                        first_expression = expr;
+                        continue;
+                    } else {
+                        return Err(format!(
+                            "Parsing Error: Type mismatched at line {}, column {}",
+                            token_info.line_number, token_info.column_number
+                        ));
+                    }
+                }
+                Some(Token::WhiteSpace(_)) => {
+                    self.advance();
+                    continue;
+                }
+                _ => {
+                    return Ok(first_expression);
+                }
+            }
         }
     }
 
@@ -487,7 +541,9 @@ impl<'a> Parser<'a> {
                 )) => {
                     self.advance();
                     let second_expression = self.parse_prod()?;
-                    if first_expression.tipe() == second_expression.tipe() {
+                    if first_expression.tipe() == second_expression.tipe()
+                        && first_expression.tipe() == &LanguageType::Number
+                    {
                         let expr = BinaryExpression::new(
                             first_expression,
                             second_expression,
@@ -524,7 +580,9 @@ impl<'a> Parser<'a> {
                 )) => {
                     self.advance();
                     let second_expression = self.parse_unary()?;
-                    if first_expression.tipe() == second_expression.tipe() {
+                    if first_expression.tipe() == second_expression.tipe()
+                        && first_expression.tipe() == &LanguageType::Number
+                    {
                         let expr = BinaryExpression::new(
                             first_expression,
                             second_expression,
@@ -552,12 +610,36 @@ impl<'a> Parser<'a> {
 
     fn parse_unary(&mut self) -> Result<Either, String> {
         match self.peek().cloned() {
-            Some(Token::Operator(operator @ (OperatorToken::PLUS | OperatorToken::MINUS), _)) => {
+            Some(Token::Operator(
+                operator @ (OperatorToken::PLUS | OperatorToken::MINUS),
+                token_info,
+            )) => {
                 self.advance();
                 let expr = self.parse_unary()?;
-                let tipe = expr.tipe();
+                let tipe = expr.tipe().clone();
                 let unary_expr = UnaryExpression::new(expr, operator);
-                Ok(unary_expr)
+                if tipe == LanguageType::Number {
+                    Ok(unary_expr)
+                } else {
+                    Err(format!(
+                        "Parsing Error: Type mismatched at line {}, column {}",
+                        token_info.line_number, token_info.column_number
+                    ))
+                }
+            }
+            Some(Token::Operator(operator @ OperatorToken::LOGICAL_NOT, token_info)) => {
+                self.advance();
+                let expr = self.parse_unary()?;
+                let tipe = expr.tipe().clone();
+                let unary_expr = UnaryExpression::new(expr, operator);
+                if tipe == LanguageType::Boolean {
+                    Ok(unary_expr)
+                } else {
+                    Err(format!(
+                        "Parsing Error: Type mismatched at line {}, column {}",
+                        token_info.line_number, token_info.column_number
+                    ))
+                }
             }
             Some(Token::WhiteSpace(_)) => {
                 self.advance();
@@ -571,7 +653,7 @@ impl<'a> Parser<'a> {
         match self.peek().cloned() {
             Some(Token::Symbol(SymbolToken::SmallBracketOpen, _)) => {
                 self.advance();
-                let val = self.parse_term()?;
+                let val = self.parse_logical_term()?;
                 match self.peek().cloned() {
                     Some(Token::Symbol(SymbolToken::SmallBracketClose, _)) => {
                         self.advance();
@@ -700,7 +782,7 @@ impl Either {
             },
             Self::LetStatement(boxed_let_statement) => match &**boxed_let_statement {
                 LetStatement { lvalue, rvalue } => {
-                    println!("{:?}", boxed_let_statement);
+                    // println!("{:?}", boxed_let_statement);
                     rvalue.calculate()
                 }
             },
@@ -716,28 +798,35 @@ enum InternalDataStucture {
 
 impl InternalDataStucture {
     fn __match_binary_operation__(left: Self, right: Self, operator: OperatorToken) -> Self {
-        if let Self::Number(l) = left {
-            if let Self::Number(r) = right {
-                return match operator {
-                    OperatorToken::PLUS => Self::Number(l + r),
-                    OperatorToken::MINUS => Self::Number(l - r),
-                    OperatorToken::STAR => Self::Number(l * r),
-                    OperatorToken::DIVIDE => Self::Number(l / r),
-                };
-            }
-            unreachable!();
+        match (left, right) {
+            (Self::Number(l), Self::Number(r)) => match operator {
+                OperatorToken::PLUS => Self::Number(l + r),
+                OperatorToken::MINUS => Self::Number(l - r),
+                OperatorToken::STAR => Self::Number(l * r),
+                OperatorToken::DIVIDE => Self::Number(l / r),
+                _ => unreachable!(),
+            },
+
+            (Self::Bool(l), Self::Bool(r)) => match operator {
+                OperatorToken::LOGICAL_AND => Self::Bool(l && r),
+                OperatorToken::LOGICAL_OR => Self::Bool(l || r),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
         }
-        unreachable!();
     }
     fn __match_unary_operation__(val: Self, operator: OperatorToken) -> Self {
-        if let Self::Number(v) = val {
-            return match operator {
+        match val {
+            Self::Number(v) => match operator {
                 OperatorToken::PLUS => Self::Number(v),
                 OperatorToken::MINUS => Self::Number(-v),
                 _ => unreachable!(),
-            };
+            },
+            Self::Bool(b) => match operator {
+                OperatorToken::LOGICAL_NOT => Self::Bool(!b),
+                _ => unreachable!(),
+            },
         }
-        unreachable!();
     }
 }
 
