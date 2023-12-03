@@ -114,9 +114,13 @@ enum OperatorToken {
     LOGICAL_OR,
 
     LOGICAL_NOT,
+
+    LESS_THAN,
+    GREATER_THAN,
+    EQUAL_TO,
 }
 impl OperatorToken {
-    fn get_all() -> [OperatorToken; 7] {
+    fn get_all() -> [OperatorToken; 10] {
         [
             Self::PLUS,
             Self::MINUS,
@@ -125,6 +129,9 @@ impl OperatorToken {
             Self::LOGICAL_AND,
             Self::LOGICAL_OR,
             Self::LOGICAL_NOT,
+            Self::LESS_THAN,
+            Self::GREATER_THAN,
+            Self::EQUAL_TO,
         ]
     }
     fn value(&self) -> &str {
@@ -136,6 +143,21 @@ impl OperatorToken {
             Self::LOGICAL_AND => "&&",
             Self::LOGICAL_OR => "||",
             Self::LOGICAL_NOT => "!",
+            Self::LESS_THAN => "<",
+            Self::GREATER_THAN => ">",
+            Self::EQUAL_TO => "==",
+        }
+    }
+    //output type after application of operator
+    fn tipe(&self) -> &LanguageType {
+        match self {
+            Self::PLUS | Self::MINUS | Self::STAR | Self::DIVIDE => &LanguageType::Number,
+            Self::LOGICAL_AND
+            | Self::LOGICAL_OR
+            | Self::LOGICAL_NOT
+            | Self::LESS_THAN
+            | Self::GREATER_THAN
+            | Self::EQUAL_TO => &LanguageType::Boolean,
         }
     }
     fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
@@ -469,7 +491,7 @@ impl<'a> Parser<'a> {
                                 self.advance();
                                 self.consume_optional_whitespace();
                                 // self.parse_term()
-                                let term = self.parse_term()?;
+                                let term = self.parse_logical_term()?;
                                 Ok(LetStatement::new(identifier.iter().collect(), term))
                             }
                             Some(token) => Err(format!(
@@ -498,19 +520,59 @@ impl<'a> Parser<'a> {
         }
     }
     fn parse_logical_term(&mut self) -> Result<Either, String> {
-        let mut first_expression = self.parse_term()?;
+        let mut first_expression = self.parse_comparison_term()?;
+        // println!("debug {:?}", first_expression);
 
         loop {
             match self.peek().cloned() {
                 Some(Token::Operator(
-                    operator_token @ (OperatorToken::LOGICAL_AND | OperatorToken::LOGICAL_OR),
+                    operator_token @ (OperatorToken::LOGICAL_AND
+                    | OperatorToken::LOGICAL_OR
+                    | OperatorToken::EQUAL_TO),
                     token_info,
-                )) => {
+                )) if first_expression.tipe() == &LanguageType::Boolean => {
+                    self.advance();
+                    let second_expression = self.parse_comparison_term()?;
+                    if first_expression.tipe() == second_expression.tipe() {
+                        let expr = BinaryExpression::new(
+                            first_expression,
+                            second_expression,
+                            operator_token,
+                        );
+                        first_expression = expr;
+                        continue;
+                    } else {
+                        return Err(format!(
+                            "Parsing Error: Type mismatched at line {}, column {}",
+                            token_info.line_number, token_info.column_number
+                        ));
+                    }
+                }
+                Some(Token::WhiteSpace(_)) => {
+                    self.advance();
+                    continue;
+                }
+                _ => {
+                    return Ok(first_expression);
+                }
+            }
+        }
+    }
+    fn parse_comparison_term(&mut self) -> Result<Either, String> {
+        let mut first_expression = self.parse_term()?;
+        // println!("debug {:?}", first_expression);
+
+        loop {
+            match self.peek().cloned() {
+                Some(Token::Operator(
+                    operator_token @ (OperatorToken::LESS_THAN
+                    | OperatorToken::GREATER_THAN
+                    | OperatorToken::EQUAL_TO),
+                    token_info,
+                )) if first_expression.tipe() == &LanguageType::Number => {
                     self.advance();
                     let second_expression = self.parse_term()?;
-                    if first_expression.tipe() == second_expression.tipe()
-                        && first_expression.tipe() == &LanguageType::Boolean
-                    {
+                    if first_expression.tipe() == second_expression.tipe() {
                         let expr = BinaryExpression::new(
                             first_expression,
                             second_expression,
@@ -583,12 +645,10 @@ impl<'a> Parser<'a> {
                 Some(Token::Operator(
                     operator_token @ (OperatorToken::STAR | OperatorToken::DIVIDE),
                     token_info,
-                )) => {
+                )) if first_expression.tipe() == &LanguageType::Number => {
                     self.advance();
                     let second_expression = self.parse_unary()?;
-                    if first_expression.tipe() == second_expression.tipe()
-                        && first_expression.tipe() == &LanguageType::Number
-                    {
+                    if first_expression.tipe() == second_expression.tipe() {
                         let expr = BinaryExpression::new(
                             first_expression,
                             second_expression,
@@ -810,12 +870,18 @@ impl InternalDataStucture {
                 OperatorToken::MINUS => Self::Number(l - r),
                 OperatorToken::STAR => Self::Number(l * r),
                 OperatorToken::DIVIDE => Self::Number(l / r),
+
+                OperatorToken::LESS_THAN => Self::Bool(l < r),
+                OperatorToken::GREATER_THAN => Self::Bool(l > r),
+                OperatorToken::EQUAL_TO => Self::Bool(l == r),
+
                 _ => unreachable!(),
             },
 
             (Self::Bool(l), Self::Bool(r)) => match operator {
                 OperatorToken::LOGICAL_AND => Self::Bool(l && r),
                 OperatorToken::LOGICAL_OR => Self::Bool(l || r),
+                OperatorToken::EQUAL_TO => Self::Bool(l == r),
                 _ => unreachable!(),
             },
             _ => unreachable!(),
@@ -851,7 +917,7 @@ impl BinaryExpression {
         }))
     }
     fn tipe(&self) -> &LanguageType {
-        self.left.tipe()
+        self.operator.tipe()
     }
 }
 #[derive(Debug)]
@@ -867,7 +933,7 @@ impl UnaryExpression {
         }))
     }
     fn tipe(&self) -> &LanguageType {
-        self.val.tipe()
+        self.operator.tipe()
     }
 }
 
