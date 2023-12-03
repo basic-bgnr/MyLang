@@ -526,9 +526,7 @@ impl<'a> Parser<'a> {
         loop {
             match self.peek().cloned() {
                 Some(Token::Operator(
-                    operator_token @ (OperatorToken::LOGICAL_AND
-                    | OperatorToken::LOGICAL_OR
-                    | OperatorToken::EQUAL_TO),
+                    operator_token @ (OperatorToken::LOGICAL_AND | OperatorToken::LOGICAL_OR),
                     token_info,
                 )) if first_expression.tipe() == &LanguageType::Boolean => {
                     self.advance();
@@ -570,6 +568,26 @@ impl<'a> Parser<'a> {
                     | OperatorToken::EQUAL_TO),
                     token_info,
                 )) if first_expression.tipe() == &LanguageType::Number => {
+                    self.advance();
+                    let second_expression = self.parse_term()?;
+                    if first_expression.tipe() == second_expression.tipe() {
+                        let expr = BinaryExpression::new(
+                            first_expression,
+                            second_expression,
+                            operator_token,
+                        );
+                        first_expression = expr;
+                        continue;
+                    } else {
+                        return Err(format!(
+                            "Parsing Error: Type mismatched at line {}, column {}",
+                            token_info.line_number, token_info.column_number
+                        ));
+                    }
+                }
+                Some(Token::Operator(operator_token @ OperatorToken::EQUAL_TO, token_info))
+                    if first_expression.tipe() == &LanguageType::Boolean =>
+                {
                     self.advance();
                     let second_expression = self.parse_term()?;
                     if first_expression.tipe() == second_expression.tipe() {
