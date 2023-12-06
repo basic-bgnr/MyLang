@@ -438,6 +438,7 @@ impl<'a> Parser<'a> {
 
     fn parse(&mut self) -> Result<Either, String> {
         let (return_value, _) = self.parse_let_statement()?;
+        // println!("debug in parsing function: {:?}", self.peek());
         match self.peek() {
             Some(Token::EOF(_)) => Ok(return_value),
             Some(token) => Err(format!(
@@ -524,8 +525,7 @@ impl<'a> Parser<'a> {
     }
     fn parse_logical_term(&mut self) -> Result<(Either, TokenInfo), String> {
         let (mut first_expression, token_info) = self.parse_comparison_term()?;
-        // println!("debug {:?}", first_expression);
-
+        // self.consume_optional_whitespace();
         loop {
             match self.peek().cloned() {
                 Some(Token::Operator(
@@ -548,6 +548,15 @@ impl<'a> Parser<'a> {
                             token_info.line_number, token_info.column_number
                         ));
                     }
+                }
+                Some(Token::Operator(
+                    (OperatorToken::LOGICAL_AND | OperatorToken::LOGICAL_OR),
+                    token_info,
+                )) if first_expression.tipe() == &LanguageType::Number => {
+                    return Err(format!(
+                        "Parsing Error: Operator mismatched at line {}, column {}",
+                        token_info.line_number, token_info.column_number
+                    ));
                 }
                 Some(Token::WhiteSpace(_)) => {
                     self.advance();
@@ -625,12 +634,10 @@ impl<'a> Parser<'a> {
                 Some(Token::Operator(
                     operator_token @ (OperatorToken::PLUS | OperatorToken::MINUS),
                     token_info,
-                )) => {
+                )) if first_expression.tipe() == &LanguageType::Number => {
                     self.advance();
                     let (second_expression, token_info) = self.parse_prod()?;
-                    if first_expression.tipe() == second_expression.tipe()
-                        && first_expression.tipe() == &LanguageType::Number
-                    {
+                    if first_expression.tipe() == second_expression.tipe() {
                         let expr = BinaryExpression::new(
                             first_expression,
                             second_expression,
@@ -644,6 +651,15 @@ impl<'a> Parser<'a> {
                             token_info.line_number, token_info.column_number
                         ));
                     }
+                }
+                Some(Token::Operator(
+                    operator_token @ (OperatorToken::PLUS | OperatorToken::MINUS),
+                    token_info,
+                )) if first_expression.tipe() == &LanguageType::Boolean => {
+                    return Err(format!(
+                        "Parsing Error: Operator mismatched at line {}, column {}",
+                        token_info.line_number, token_info.column_number
+                    ));
                 }
                 Some(Token::WhiteSpace(_)) => {
                     self.advance();
