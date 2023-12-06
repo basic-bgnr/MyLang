@@ -197,6 +197,20 @@ impl<'a> Token<'a> {
             Self::Alphanumeric(_) => unreachable!(),
         }
     }
+    fn value(&self) -> String {
+        match self {
+            Self::Digit(d, _) => d.to_string(),
+            Self::Alphabet(a, _) => a.to_string(),
+            Self::Identifier(i, _) => i.iter().collect::<String>(),
+            Self::Operator(o, _) => o.value().to_string(),
+            Self::Symbol(s, _) => s.value().to_string(),
+            Self::Keyword(k, _) => k.value().to_string(),
+
+            Self::WhiteSpace(_) => "".to_string(),
+            Self::Alphanumeric(_) => unreachable!(),
+            Self::EOF(_) => unreachable!(),
+        }
+    }
 }
 #[derive(PartialEq, Debug, Clone, Copy)]
 struct TokenInfo {
@@ -617,6 +631,15 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 }
+                Some(Token::Operator(
+                    operator_token @ (OperatorToken::LESS_THAN | OperatorToken::GREATER_THAN),
+                    token_info,
+                )) if first_expression.tipe() == &LanguageType::Boolean => {
+                    return Err(format!(
+                        "Parsing Error: Operator mismatched at line {}, column {}",
+                        token_info.line_number, token_info.column_number
+                    ));
+                }
                 Some(Token::WhiteSpace(_)) => {
                     self.advance();
                     continue;
@@ -698,6 +721,16 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 }
+                Some(Token::Operator(
+                    operator_token @ (OperatorToken::STAR | OperatorToken::DIVIDE),
+                    token_info,
+                )) if first_expression.tipe() == &LanguageType::Boolean => {
+                    return Err(format!(
+                        "Parsing Error: Operator mismatched at line {}, column {}",
+                        token_info.line_number, token_info.column_number
+                    ));
+                }
+
                 Some(Token::WhiteSpace(_)) => {
                     self.advance();
                     continue;
@@ -772,11 +805,11 @@ impl<'a> Parser<'a> {
                     None => Err(format!("Parsing Error: None value encountered")),
                 }
             }
-            _ => self.parse_number(),
+            _ => self.parse_literal(),
         }
     }
 
-    fn parse_number(&mut self) -> Result<(Either, TokenInfo), String> {
+    fn parse_literal(&mut self) -> Result<(Either, TokenInfo), String> {
         match self.peek().cloned() {
             Some(Token::Digit(first_digit, digit_token)) => {
                 let mut digits = vec![first_digit];
@@ -831,7 +864,8 @@ impl<'a> Parser<'a> {
             }
 
             Some(token) => Err(format!(
-                "Parsing Error: Value other than number encountered at line {}, column {}",
+                "Parsing Error: Value other than literal (Number, Boolean...) {:?} encountered at line {}, column {}",
+                token.value(),
                 token.get_token_info().line_number,
                 token.get_token_info().column_number,
             )),
