@@ -1,4 +1,4 @@
-use std::{format, io::Write, unreachable};
+use std::{format, io::Write, unreachable, vec};
 
 fn main() {
     test()
@@ -19,7 +19,9 @@ fn test() {
         }
         match interpret(line) {
             Ok(result) => {
-                println!("{:?}", result);
+                for r in result {
+                    println!("{:?}", r);
+                }
             }
             Err(err) => {
                 println!("{:}", err);
@@ -29,7 +31,7 @@ fn test() {
     }
 }
 
-fn interpret(program: &str) -> Result<InternalDataStucture, String> {
+fn interpret(program: &str) -> Result<Vec<InternalDataStucture>, String> {
     let input_chars = program.chars().collect::<Vec<_>>();
 
     let mut tokenizer = Tokenizer::new(&input_chars);
@@ -38,8 +40,11 @@ fn interpret(program: &str) -> Result<InternalDataStucture, String> {
     match tokens {
         Ok(token_list) => {
             let mut parser = Parser::new(&token_list);
-            let result = parser.parse()?;
-            Ok(result.calculate())
+            let parsed_result = parser.parse()?;
+            Ok(parsed_result
+                .iter()
+                .map(|statement| statement.calculate())
+                .collect())
         }
         Err(err) => Err(err
             .into_iter()
@@ -79,15 +84,17 @@ enum SymbolToken {
     Dot,
     Equal,
     UnderScore,
+    SemiColon,
 }
 impl SymbolToken {
-    fn get_all() -> [SymbolToken; 5] {
+    fn get_all() -> [SymbolToken; 6] {
         [
             Self::SmallBracketOpen,
             Self::SmallBracketClose,
             Self::Dot,
             Self::Equal,
             Self::UnderScore,
+            Self::SemiColon,
         ]
     }
     fn value(&self) -> &str {
@@ -97,6 +104,7 @@ impl SymbolToken {
             Self::Dot => ".",
             Self::Equal => "=",
             Self::UnderScore => "_",
+            Self::SemiColon => ";",
         }
     }
     fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
@@ -450,17 +458,29 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse(&mut self) -> Result<Either, String> {
-        let (return_value, _) = self.parse_let_statement()?;
-        // println!("debug in parsing function: {:?}", self.peek());
-        match self.peek() {
-            Some(Token::EOF(_)) => Ok(return_value),
-            Some(token) => Err(format!(
-                "Parsing Error at: {} {}",
-                token.get_token_info().line_number,
-                token.get_token_info().column_number
-            )),
-            None => Err(format!("Parsing Error: None value encountered")),
+    fn parse(&mut self) -> Result<Vec<Either>, String> {
+        let mut program = Vec::new();
+        loop {
+            let (return_value, _) = self.parse_let_statement()?;
+            program.push(return_value);
+            self.consume_optional_semicolon();
+            // println!("debug in parsing function: {:?}", self.peek());
+            match self.peek() {
+                Some(Token::EOF(_)) => {
+                    return Ok(program);
+                }
+                Some(token) => {
+                    // return Err(format!(
+                    //     "Parsing Error at: {} {}",
+                    //     token.get_token_info().line_number,
+                    //     token.get_token_info().column_number
+                    // ));
+                    continue;
+                }
+                None => {
+                    return Err(format!("Parsing Error: None value encountered"));
+                }
+            }
         }
     }
 
@@ -482,6 +502,12 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn consume_optional_semicolon(&mut self) {
+        if let Some(Token::Symbol(SymbolToken::SemiColon, _)) = self.peek() {
+            self.advance();
+        }
+    }
+
     fn consume_optional_whitespace(&mut self) {
         if let Some(Token::WhiteSpace(_)) = self.peek() {
             self.advance();
@@ -489,6 +515,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_let_statement(&mut self) -> Result<(Either, TokenInfo), String> {
+        self.consume_optional_whitespace();
+        // println!("debug {:?}", self.peek());
         match self.peek().cloned() {
             Some(Token::Keyword(keyword, token_info))
                 if keyword.value() == KeywordToken::Let.value() =>
@@ -584,7 +612,6 @@ impl<'a> Parser<'a> {
     }
     fn parse_comparison_term(&mut self) -> Result<(Either, TokenInfo), String> {
         let (mut first_expression, token_info) = self.parse_term()?;
-        // println!("debug {:?}", first_expression);
 
         loop {
             match self.peek().cloned() {
