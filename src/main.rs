@@ -215,8 +215,8 @@ impl<'a> Token<'a> {
             Self::Keyword(k, _) => k.value().to_string(),
 
             Self::WhiteSpace(_) => "".to_string(),
-            Self::Alphanumeric(_) => unreachable!(),
-            Self::EOF(_) => unreachable!(),
+            Self::Alphanumeric(lst_chr) => lst_chr.iter().collect(),
+            Self::EOF(_) => "<EOF>".to_string(),
         }
     }
 }
