@@ -516,7 +516,6 @@ impl<'a> Parser<'a> {
 
     fn parse_let_statement(&mut self) -> Result<(Either, TokenInfo), String> {
         self.consume_optional_whitespace();
-        // println!("debug {:?}", self.peek());
         match self.peek().cloned() {
             Some(Token::Keyword(keyword, token_info))
                 if keyword.value() == KeywordToken::Let.value() =>
@@ -533,7 +532,6 @@ impl<'a> Parser<'a> {
                             {
                                 self.advance();
                                 self.consume_optional_whitespace();
-                                // self.parse_term()
                                 let (term, token_info) = self.parse_logical_term()?;
                                 Ok((
                                     LetStatement::new(identifier.iter().collect(), term),
@@ -552,12 +550,12 @@ impl<'a> Parser<'a> {
                         }
                     }
                     Some(token) => Err(format!(
-                        "Parsing Error: No closing bracket found at line {}, column {}",
+                        "Parsing Error: No identifier found at line {}, column {}",
                         token.get_token_info().line_number,
                         token.get_token_info().column_number
                     )),
                     None => Err(format!(
-                        "Parsing Error: No closing bracket found at line {}, column {}",
+                        "Parsing Error: None value found at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )),
                 }
@@ -878,7 +876,7 @@ impl<'a> Parser<'a> {
                             .parse::<f64>()
                             .unwrap(),
                     ),
-                    token_info,
+                    digit_token,
                 ))
             }
             Some(Token::Keyword(KeywordToken::True, token_info)) => {
