@@ -1,10 +1,13 @@
-use std::{format, io::Write, unreachable, vec};
+use std::{collections::HashMap, format, io::Write, println, unreachable, vec};
 
 fn main() {
     test()
 }
 
 fn test() {
+    let mut environment = HashMap::new();
+    let mut prev_parsed_program = Vec::new();
+
     'loop_start: loop {
         let mut line = String::new();
         print!(">>> ");
@@ -17,12 +20,18 @@ fn test() {
         if line.len() == 0 {
             continue 'loop_start;
         }
-        match interpret(line) {
-            Ok(result) => {
-                for r in result {
-                    println!("{:?}", r);
-                }
+        match tokenize_and_parse(line, &prev_parsed_program) {
+            Ok(mut parsed_program) => {
+                parsed_program
+                    .iter()
+                    .map(|statement| statement.calculate(&mut environment))
+                    .for_each(|result| match result {
+                        InternalDataStucture::Void => (),
+                        _ => println!("{:?}", result),
+                    });
+                prev_parsed_program.append(&mut parsed_program);
             }
+
             Err(err) => {
                 println!("{:}", err);
                 continue 'loop_start;
@@ -31,7 +40,10 @@ fn test() {
     }
 }
 
-fn interpret(program: &str) -> Result<Vec<InternalDataStucture>, String> {
+fn tokenize_and_parse(
+    program: &str,
+    previous_parsed_program: &[Either],
+) -> Result<Vec<Either>, String> {
     let input_chars = program.chars().collect::<Vec<_>>();
 
     let mut tokenizer = Tokenizer::new(&input_chars);
@@ -40,11 +52,10 @@ fn interpret(program: &str) -> Result<Vec<InternalDataStucture>, String> {
     match tokens {
         Ok(token_list) => {
             let mut parser = Parser::new(&token_list);
+            parser.add_reference_to_previous_program(previous_parsed_program);
+
             let parsed_result = parser.parse()?;
-            Ok(parsed_result
-                .iter()
-                .map(|statement| statement.calculate())
-                .collect())
+            Ok(parsed_result)
         }
         Err(err) => Err(err
             .into_iter()
@@ -443,31 +454,70 @@ impl<'a> Tokenizer<'a> {
     }
 }
 
-struct Parser<'a> {
+struct Parser<'b, 'a: 'b> {
     tokens: &'a [Token<'a>],
     index: usize,
     len: usize,
+    program: Vec<Either>,
+    prev_program: Option<&'b [Either]>,
 }
 
-impl<'a> Parser<'a> {
+impl<'b, 'a> Parser<'b, 'a> {
     fn new(tokens: &'a [Token<'a>]) -> Self {
         Parser {
             tokens: tokens,
             index: 0,
             len: tokens.len(),
+            program: Vec::new(),
+            prev_program: None,
         }
     }
 
-    fn parse(&mut self) -> Result<Vec<Either>, String> {
-        let mut program = Vec::new();
+    fn add_reference_to_previous_program(&mut self, prev_program: &'b [Either]) {
+        self.prev_program = Some(prev_program);
+    }
+
+    fn get_reference_to_identifier(&self, name: &str) -> Option<Either> {
+        for statement in self.program.iter().rev() {
+            match statement {
+                Either::LetStatement(boxed_let) if boxed_let.lvalue == name => {
+                    return Some(Either::Identifier(
+                        boxed_let.lvalue.clone(),
+                        *boxed_let.rvalue.tipe(),
+                    ))
+                }
+                _ => continue,
+            }
+        }
+
+        match self.prev_program {
+            Some(prev_program) => {
+                for statement in prev_program.iter().rev() {
+                    match statement {
+                        Either::LetStatement(boxed_let) if boxed_let.lvalue == name => {
+                            return Some(Either::Identifier(
+                                boxed_let.lvalue.clone(),
+                                *boxed_let.rvalue.tipe(),
+                            ))
+                        }
+                        _ => continue,
+                    }
+                }
+            }
+            None => return None,
+        };
+        None
+    }
+
+    fn parse(mut self) -> Result<Vec<Either>, String> {
         loop {
             let (return_value, _) = self.parse_let_statement()?;
-            program.push(return_value);
+            self.program.push(return_value);
             self.consume_optional_semicolon();
             // println!("debug in parsing function: {:?}", self.peek());
             match self.peek() {
                 Some(Token::EOF(_)) => {
-                    return Ok(program);
+                    return Ok(self.program);
                 }
                 Some(token) => {
                     // return Err(format!(
@@ -887,6 +937,21 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok((Either::Bool(false), token_info))
             }
+            Some(Token::Identifier(var_name, token_info)) => {
+                self.advance();
+                let var_name = var_name.iter().collect::<String>();
+                match self.get_reference_to_identifier(&var_name) {
+                    Some(identifier) => Ok((Either::Identifier(var_name.to_string(),
+                                                            *identifier.tipe()), token_info)),
+                    None => Err(format!(
+                "Parsing Error: No variable named {:?} found in scope at line {}, column {}",
+                var_name,
+                token_info.line_number,
+                token_info.column_number,
+            )),
+                }
+
+            }
 
             Some(token) => Err(format!(
                 "Parsing Error: Value other than literal (Number, Boolean...) {:?} encountered at line {}, column {}",
@@ -911,6 +976,7 @@ enum Either {
     UnaryExpression(Box<UnaryExpression>),
     LetStatement(Box<LetStatement>),
     Bool(bool),
+    Identifier(String, LanguageType),
 }
 
 impl Either {
@@ -921,9 +987,13 @@ impl Either {
             Self::BinaryExpression(boxed_binary_expression) => boxed_binary_expression.tipe(),
             Self::UnaryExpression(boxed_unary_expression) => boxed_unary_expression.tipe(),
             Self::LetStatement(boxed_let_statement) => boxed_let_statement.tipe(),
+            Self::Identifier(_, tipe) => tipe,
         }
     }
-    fn calculate(&self) -> InternalDataStucture {
+    fn calculate(
+        &self,
+        environment: &mut HashMap<String, InternalDataStucture>,
+    ) -> InternalDataStucture {
         match self {
             Self::Number(val) => InternalDataStucture::Number(*val),
 
@@ -935,30 +1005,37 @@ impl Either {
                     right,
                     operator,
                 } => InternalDataStucture::__match_binary_operation__(
-                    left.calculate(),
-                    right.calculate(),
+                    left.calculate(environment),
+                    right.calculate(environment),
                     *operator,
                 ),
             },
             Self::UnaryExpression(boxed_expression) => match &**boxed_expression {
                 UnaryExpression { val, operator } => {
-                    InternalDataStucture::__match_unary_operation__(val.calculate(), *operator)
+                    InternalDataStucture::__match_unary_operation__(
+                        val.calculate(environment),
+                        *operator,
+                    )
                 }
             },
             Self::LetStatement(boxed_let_statement) => match &**boxed_let_statement {
                 LetStatement { lvalue, rvalue } => {
                     // println!("{:?}", boxed_let_statement);
-                    rvalue.calculate()
+                    let return_val = rvalue.calculate(environment);
+                    environment.insert(lvalue.clone(), return_val);
+                    InternalDataStucture::Void
                 }
             },
+            Self::Identifier(name, _) => environment.get(name).unwrap().clone(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum InternalDataStucture {
     Number(f64),
     Bool(bool),
+    Void,
 }
 
 impl InternalDataStucture {
@@ -974,16 +1051,26 @@ impl InternalDataStucture {
                 OperatorToken::GREATER_THAN => Self::Bool(l > r),
                 OperatorToken::EQUAL_TO => Self::Bool(l == r),
 
-                _ => unreachable!(),
+                _ => {
+                    println!("{:?}, {:?}", left, right);
+                    unreachable!();
+                }
             },
 
             (Self::Bool(l), Self::Bool(r)) => match operator {
                 OperatorToken::LOGICAL_AND => Self::Bool(l && r),
                 OperatorToken::LOGICAL_OR => Self::Bool(l || r),
                 OperatorToken::EQUAL_TO => Self::Bool(l == r),
-                _ => unreachable!(),
+                _ => {
+                    println!("{:?}, {:?}", left, right);
+                    unreachable!()
+                }
             },
-            _ => unreachable!(),
+
+            _ => {
+                println!("{:?}, {:?}", left, right);
+                unreachable!()
+            }
         }
     }
     fn __match_unary_operation__(val: Self, operator: OperatorToken) -> Self {
@@ -997,6 +1084,8 @@ impl InternalDataStucture {
                 OperatorToken::LOGICAL_NOT => Self::Bool(!b),
                 _ => unreachable!(),
             },
+
+            _ => unreachable!(),
         }
     }
 }
