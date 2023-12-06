@@ -437,7 +437,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse(&mut self) -> Result<Either, String> {
-        let return_value = self.parse_let_statement()?;
+        let (return_value, _) = self.parse_let_statement()?;
         match self.peek() {
             Some(Token::EOF(_)) => Ok(return_value),
             Some(token) => Err(format!(
@@ -473,7 +473,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_let_statement(&mut self) -> Result<Either, String> {
+    fn parse_let_statement(&mut self) -> Result<(Either, TokenInfo), String> {
         match self.peek().cloned() {
             Some(Token::Keyword(keyword, token_info))
                 if keyword.value() == KeywordToken::Let.value() =>
@@ -481,7 +481,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 self.advance(); //consume whitespace
                 match self.peek().cloned() {
-                    Some(Token::Identifier(identifier, iden_token_info)) => {
+                    Some(Token::Identifier(identifier, token_info)) => {
                         self.advance();
                         self.consume_optional_whitespace();
                         match self.peek().cloned() {
@@ -491,8 +491,11 @@ impl<'a> Parser<'a> {
                                 self.advance();
                                 self.consume_optional_whitespace();
                                 // self.parse_term()
-                                let term = self.parse_logical_term()?;
-                                Ok(LetStatement::new(identifier.iter().collect(), term))
+                                let (term, token_info) = self.parse_logical_term()?;
+                                Ok((
+                                    LetStatement::new(identifier.iter().collect(), term),
+                                    token_info,
+                                ))
                             }
                             Some(token) => Err(format!(
                                 "Parsing Error: No equal found at line {}, column {}",
@@ -501,7 +504,7 @@ impl<'a> Parser<'a> {
                             )),
                             None => Err(format!(
                                 "Parsing Error: None value encountered at line {}, {}",
-                                iden_token_info.line_number, iden_token_info.column_number
+                                token_info.line_number, token_info.column_number
                             )),
                         }
                     }
@@ -519,8 +522,8 @@ impl<'a> Parser<'a> {
             _ => self.parse_logical_term(),
         }
     }
-    fn parse_logical_term(&mut self) -> Result<Either, String> {
-        let mut first_expression = self.parse_comparison_term()?;
+    fn parse_logical_term(&mut self) -> Result<(Either, TokenInfo), String> {
+        let (mut first_expression, token_info) = self.parse_comparison_term()?;
         // println!("debug {:?}", first_expression);
 
         loop {
@@ -530,7 +533,7 @@ impl<'a> Parser<'a> {
                     token_info,
                 )) if first_expression.tipe() == &LanguageType::Boolean => {
                     self.advance();
-                    let second_expression = self.parse_comparison_term()?;
+                    let (second_expression, token_info) = self.parse_comparison_term()?;
                     if first_expression.tipe() == second_expression.tipe() {
                         let expr = BinaryExpression::new(
                             first_expression,
@@ -551,13 +554,13 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 _ => {
-                    return Ok(first_expression);
+                    return Ok((first_expression, token_info));
                 }
             }
         }
     }
-    fn parse_comparison_term(&mut self) -> Result<Either, String> {
-        let mut first_expression = self.parse_term()?;
+    fn parse_comparison_term(&mut self) -> Result<(Either, TokenInfo), String> {
+        let (mut first_expression, token_info) = self.parse_term()?;
         // println!("debug {:?}", first_expression);
 
         loop {
@@ -569,7 +572,7 @@ impl<'a> Parser<'a> {
                     token_info,
                 )) if first_expression.tipe() == &LanguageType::Number => {
                     self.advance();
-                    let second_expression = self.parse_term()?;
+                    let (second_expression, token_info) = self.parse_term()?;
                     if first_expression.tipe() == second_expression.tipe() {
                         let expr = BinaryExpression::new(
                             first_expression,
@@ -589,7 +592,7 @@ impl<'a> Parser<'a> {
                     if first_expression.tipe() == &LanguageType::Boolean =>
                 {
                     self.advance();
-                    let second_expression = self.parse_term()?;
+                    let (second_expression, token_info) = self.parse_term()?;
                     if first_expression.tipe() == second_expression.tipe() {
                         let expr = BinaryExpression::new(
                             first_expression,
@@ -609,15 +612,13 @@ impl<'a> Parser<'a> {
                     self.advance();
                     continue;
                 }
-                _ => {
-                    return Ok(first_expression);
-                }
+                _ => return Ok((first_expression, token_info)),
             }
         }
     }
 
-    fn parse_term(&mut self) -> Result<Either, String> {
-        let mut first_expression = self.parse_prod()?;
+    fn parse_term(&mut self) -> Result<(Either, TokenInfo), String> {
+        let (mut first_expression, token_info) = self.parse_prod()?;
 
         loop {
             match self.peek().cloned() {
@@ -626,7 +627,7 @@ impl<'a> Parser<'a> {
                     token_info,
                 )) => {
                     self.advance();
-                    let second_expression = self.parse_prod()?;
+                    let (second_expression, token_info) = self.parse_prod()?;
                     if first_expression.tipe() == second_expression.tipe()
                         && first_expression.tipe() == &LanguageType::Number
                     {
@@ -649,14 +650,14 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 _ => {
-                    return Ok(first_expression);
+                    return Ok((first_expression, token_info));
                 }
             }
         }
     }
 
-    fn parse_prod(&mut self) -> Result<Either, String> {
-        let mut first_expression = self.parse_unary()?;
+    fn parse_prod(&mut self) -> Result<(Either, TokenInfo), String> {
+        let (mut first_expression, token_info) = self.parse_unary()?;
 
         loop {
             match self.peek().cloned() {
@@ -665,7 +666,7 @@ impl<'a> Parser<'a> {
                     token_info,
                 )) if first_expression.tipe() == &LanguageType::Number => {
                     self.advance();
-                    let second_expression = self.parse_unary()?;
+                    let (second_expression, token_info) = self.parse_unary()?;
                     if first_expression.tipe() == second_expression.tipe() {
                         let expr = BinaryExpression::new(
                             first_expression,
@@ -686,24 +687,24 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 _ => {
-                    return Ok(first_expression);
+                    return Ok((first_expression, token_info));
                 }
             }
         }
     }
 
-    fn parse_unary(&mut self) -> Result<Either, String> {
+    fn parse_unary(&mut self) -> Result<(Either, TokenInfo), String> {
         match self.peek().cloned() {
             Some(Token::Operator(
                 operator @ (OperatorToken::PLUS | OperatorToken::MINUS),
                 token_info,
             )) => {
                 self.advance();
-                let expr = self.parse_unary()?;
+                let (expr, token_info) = self.parse_unary()?;
                 let tipe = expr.tipe().clone();
                 let unary_expr = UnaryExpression::new(expr, operator);
                 if tipe == LanguageType::Number {
-                    Ok(unary_expr)
+                    Ok((unary_expr, token_info))
                 } else {
                     Err(format!(
                         "Parsing Error: Type mismatched at line {}, column {}",
@@ -713,11 +714,11 @@ impl<'a> Parser<'a> {
             }
             Some(Token::Operator(operator @ OperatorToken::LOGICAL_NOT, token_info)) => {
                 self.advance();
-                let expr = self.parse_unary()?;
+                let (expr, token_info) = self.parse_unary()?;
                 let tipe = expr.tipe().clone();
                 let unary_expr = UnaryExpression::new(expr, operator);
                 if tipe == LanguageType::Boolean {
-                    Ok(unary_expr)
+                    Ok((unary_expr, token_info))
                 } else {
                     Err(format!(
                         "Parsing Error: Type mismatched at line {}, column {}",
@@ -733,15 +734,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_bracket(&mut self) -> Result<Either, String> {
+    fn parse_bracket(&mut self) -> Result<(Either, TokenInfo), String> {
         match self.peek().cloned() {
-            Some(Token::Symbol(SymbolToken::SmallBracketOpen, _)) => {
+            Some(Token::Symbol(SymbolToken::SmallBracketOpen, token_info)) => {
                 self.advance();
-                let val = self.parse_logical_term()?;
+                let (val, token_info) = self.parse_logical_term()?;
                 match self.peek().cloned() {
                     Some(Token::Symbol(SymbolToken::SmallBracketClose, _)) => {
                         self.advance();
-                        Ok(val)
+                        Ok((val, token_info))
                     }
                     Some(Token::WhiteSpace(_)) => {
                         self.advance();
@@ -759,11 +760,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_number(&mut self) -> Result<Either, String> {
+    fn parse_number(&mut self) -> Result<(Either, TokenInfo), String> {
         match self.peek().cloned() {
-            Some(Token::Digit(first_digit, _)) => {
+            Some(Token::Digit(first_digit, digit_token)) => {
                 let mut digits = vec![first_digit];
                 let mut num_of_dot = 0;
+                let mut token_info = digit_token;
                 self.advance();
                 loop {
                     match self.peek().cloned() {
@@ -781,8 +783,9 @@ impl<'a> Parser<'a> {
                 token_info_symbol.column_number ,
             ))
                         }
-                        Some(Token::Digit(val, _)) => {
+                        Some(Token::Digit(val, digit_token)) => {
                             self.advance();
+                            token_info = digit_token;
                             digits.push(val);
                         }
 
@@ -791,21 +794,24 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                Ok(Either::Number(
-                    digits
-                        .into_iter()
-                        .collect::<String>()
-                        .parse::<f64>()
-                        .unwrap(),
+                Ok((
+                    Either::Number(
+                        digits
+                            .into_iter()
+                            .collect::<String>()
+                            .parse::<f64>()
+                            .unwrap(),
+                    ),
+                    token_info,
                 ))
             }
             Some(Token::Keyword(KeywordToken::True, token_info)) => {
                 self.advance();
-                Ok(Either::Bool(true))
+                Ok((Either::Bool(true), token_info))
             }
             Some(Token::Keyword(KeywordToken::False, token_info)) => {
                 self.advance();
-                Ok(Either::Bool(false))
+                Ok((Either::Bool(false), token_info))
             }
 
             Some(token) => Err(format!(
