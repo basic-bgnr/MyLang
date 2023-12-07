@@ -477,6 +477,10 @@ impl<'b, 'a> Parser<'b, 'a> {
         self.prev_program = Some(prev_program);
     }
 
+    fn reset_index_at(&mut self, index: usize) {
+        self.index = index;
+    }
+
     fn get_reference_to_identifier(&self, name: &str) -> Option<Either> {
         for statement in self.program.iter().rev() {
             match statement {
@@ -1029,6 +1033,12 @@ impl Either {
             Self::Identifier(name, _) => environment.get(name).unwrap().clone(),
         }
     }
+}
+
+#[derive(Debug)]
+enum Error {
+    ParseError(String),
+    TypeError(String),
 }
 
 #[derive(Debug, Clone, Copy)]
