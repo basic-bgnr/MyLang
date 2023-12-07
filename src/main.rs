@@ -33,7 +33,7 @@ fn test() {
             }
 
             Err(err) => {
-                println!("{:}", err);
+                println!("{:?}", err);
                 continue 'loop_start;
             }
         }
@@ -43,7 +43,7 @@ fn test() {
 fn tokenize_and_parse(
     program: &str,
     previous_parsed_program: &[Either],
-) -> Result<Vec<Either>, String> {
+) -> Result<Vec<Either>, Error> {
     let input_chars = program.chars().collect::<Vec<_>>();
 
     let mut tokenizer = Tokenizer::new(&input_chars);
@@ -57,12 +57,13 @@ fn tokenize_and_parse(
             let parsed_result = parser.parse()?;
             Ok(parsed_result)
         }
-        Err(err) => Err(err
-            .into_iter()
-            .map(|x| x + "\n")
-            .collect::<String>()
-            .trim_end()
-            .to_string()),
+        Err(err) => Err(Error::ParseError(
+            err.into_iter()
+                .map(|x| x + "\n")
+                .collect::<String>()
+                .trim_end()
+                .to_string(),
+        )),
     }
 }
 
@@ -513,27 +514,23 @@ impl<'b, 'a> Parser<'b, 'a> {
         None
     }
 
-    fn parse(mut self) -> Result<Vec<Either>, String> {
+    fn parse(mut self) -> Result<Vec<Either>, Error> {
         loop {
-            let (return_value, _) = self.parse_let_statement()?;
-            self.program.push(return_value);
+            let (parsed_statement, _) = self
+                .parse_let_statement()
+                .or_else(|e| match e {
+                    Error::ParseError(_) => self.parse_assignment_statement(),
+                    Error::TypeError(_) => Err(e),
+                })
+                .or_else(|e| match e {
+                    Error::ParseError(_) => self.parse_logical_term(),
+                    Error::TypeError(_) => Err(e),
+                })?;
+
+            self.program.push(parsed_statement);
             self.consume_optional_semicolon();
-            // println!("debug in parsing function: {:?}", self.peek());
-            match self.peek() {
-                Some(Token::EOF(_)) => {
-                    return Ok(self.program);
-                }
-                Some(token) => {
-                    // return Err(format!(
-                    //     "Parsing Error at: {} {}",
-                    //     token.get_token_info().line_number,
-                    //     token.get_token_info().column_number
-                    // ));
-                    continue;
-                }
-                None => {
-                    return Err(format!("Parsing Error: None value encountered"));
-                }
+            if let Some(Token::EOF(_)) = self.peek() {
+                return Ok(self.program);
             }
         }
     }
@@ -568,7 +565,7 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
     }
 
-    fn parse_let_statement(&mut self) -> Result<(Either, TokenInfo), String> {
+    fn parse_let_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
         self.consume_optional_whitespace();
         match self.peek().cloned() {
             Some(Token::Keyword(keyword, token_info))
@@ -592,32 +589,100 @@ impl<'b, 'a> Parser<'b, 'a> {
                                     token_info,
                                 ))
                             }
-                            Some(token) => Err(format!(
+                            Some(token) => Err(Error::ParseError(format!(
                                 "Parsing Error: No equal found at line {}, column {}",
                                 token.get_token_info().line_number,
                                 token.get_token_info().column_number
-                            )),
-                            None => Err(format!(
+                            ))),
+                            None => Err(Error::ParseError(format!(
                                 "Parsing Error: None value encountered at line {}, {}",
                                 token_info.line_number, token_info.column_number
-                            )),
+                            ))),
                         }
                     }
-                    Some(token) => Err(format!(
+                    Some(token) => Err(Error::ParseError(format!(
                         "Parsing Error: No identifier found at line {}, column {}",
                         token.get_token_info().line_number,
                         token.get_token_info().column_number
-                    )),
-                    None => Err(format!(
-                        "Parsing Error: None value found at line {}, column {}",
+                    ))),
+                    None => Err(Error::TypeError(format!(
+                        "Type Error: None value found at line {}, column {}",
                         token_info.line_number, token_info.column_number
-                    )),
+                    ))),
                 }
             }
-            _ => self.parse_logical_term(),
+            Some(token) => Err(Error::ParseError(format!(
+                "Parsing Error: Cannot parse let statement at line {}, column {}",
+                token.get_token_info().line_number,
+                token.get_token_info().column_number
+            ))),
+            None => Err(Error::TypeError(format!(
+                "Type Error: None value encountered "
+            ))),
         }
     }
-    fn parse_logical_term(&mut self) -> Result<(Either, TokenInfo), String> {
+    fn parse_assignment_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
+        self.consume_optional_whitespace();
+        let index = self.index;
+        match self.peek().cloned() {
+            Some(identifier_token @ Token::Identifier(_, token_info)) => {
+                match self.get_reference_to_identifier(&identifier_token.value()) {
+                    Some(identifier) => {
+                        self.advance();
+                        self.consume_optional_whitespace();
+                        match self.peek().cloned() {
+                            Some(Token::Symbol(symbol, _))
+                                if symbol.value() == SymbolToken::Equal.value() =>
+                            {
+                                self.advance();
+                                self.consume_optional_whitespace();
+                                let (term, token_info) = self.parse_logical_term()?;
+                                if term.tipe() == identifier.tipe() {
+                                    Ok((
+                                        LetStatement::new(identifier_token.value(), term),
+                                        token_info,
+                                    ))
+                                } else {
+                                    self.reset_index_at(index);
+                                    Err(Error::TypeError(format!(
+                                        "Type Error: Type mismatched, found at line {}, column {}",
+                                        token_info.line_number, token_info.column_number
+                                    )))
+                                }
+                            }
+                            Some(token) => {
+                                self.reset_index_at(index);
+                                Err(Error::ParseError(format!(
+                                    "Parsing Error: No equal found at line {}, column {}",
+                                    token.get_token_info().line_number,
+                                    token.get_token_info().column_number
+                                )))
+                            }
+                            None => Err(Error::TypeError(format!(
+                                "Type Error: None value encountered at line {}, {}",
+                                token_info.line_number, token_info.column_number
+                            ))),
+                        }
+                    }
+                    None => Err(Error::ParseError(format!(
+                        "Parsing Error: use of undeclared variable {:?} encountered at line {}, {}",
+                        identifier_token.value(),
+                        token_info.line_number,
+                        token_info.column_number
+                    ))),
+                }
+            }
+            Some(token) => Err(Error::ParseError(format!(
+                "Parsing Error: Cannot parse assignment statement at line {}, column {}",
+                token.get_token_info().line_number,
+                token.get_token_info().column_number
+            ))),
+            None => Err(Error::TypeError(format!(
+                "Type Error: None value encountered "
+            ))),
+        }
+    }
+    fn parse_logical_term(&mut self) -> Result<(Either, TokenInfo), Error> {
         let (mut first_expression, token_info) = self.parse_comparison_term()?;
         // self.consume_optional_whitespace();
         loop {
@@ -637,20 +702,20 @@ impl<'b, 'a> Parser<'b, 'a> {
                         first_expression = expr;
                         continue;
                     } else {
-                        return Err(format!(
-                            "Parsing Error: Type mismatched at line {}, column {}",
+                        return Err(Error::TypeError(format!(
+                            "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
-                        ));
+                        )));
                     }
                 }
                 Some(Token::Operator(
                     (OperatorToken::LOGICAL_AND | OperatorToken::LOGICAL_OR),
                     token_info,
                 )) if first_expression.tipe() == &LanguageType::Number => {
-                    return Err(format!(
-                        "Parsing Error: Operator mismatched at line {}, column {}",
+                    return Err(Error::TypeError(format!(
+                        "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
-                    ));
+                    )));
                 }
                 Some(Token::WhiteSpace(_)) => {
                     self.advance();
@@ -662,7 +727,7 @@ impl<'b, 'a> Parser<'b, 'a> {
             }
         }
     }
-    fn parse_comparison_term(&mut self) -> Result<(Either, TokenInfo), String> {
+    fn parse_comparison_term(&mut self) -> Result<(Either, TokenInfo), Error> {
         let (mut first_expression, token_info) = self.parse_term()?;
 
         loop {
@@ -684,10 +749,10 @@ impl<'b, 'a> Parser<'b, 'a> {
                         first_expression = expr;
                         continue;
                     } else {
-                        return Err(format!(
-                            "Parsing Error: Type mismatched at line {}, column {}",
+                        return Err(Error::TypeError(format!(
+                            "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
-                        ));
+                        )));
                     }
                 }
                 Some(Token::Operator(operator_token @ OperatorToken::EQUAL_TO, token_info))
@@ -704,20 +769,20 @@ impl<'b, 'a> Parser<'b, 'a> {
                         first_expression = expr;
                         continue;
                     } else {
-                        return Err(format!(
-                            "Parsing Error: Type mismatched at line {}, column {}",
+                        return Err(Error::TypeError(format!(
+                            "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
-                        ));
+                        )));
                     }
                 }
                 Some(Token::Operator(
                     operator_token @ (OperatorToken::LESS_THAN | OperatorToken::GREATER_THAN),
                     token_info,
                 )) if first_expression.tipe() == &LanguageType::Boolean => {
-                    return Err(format!(
-                        "Parsing Error: Operator mismatched at line {}, column {}",
+                    return Err(Error::TypeError(format!(
+                        "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
-                    ));
+                    )));
                 }
                 Some(Token::WhiteSpace(_)) => {
                     self.advance();
@@ -728,7 +793,7 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
     }
 
-    fn parse_term(&mut self) -> Result<(Either, TokenInfo), String> {
+    fn parse_term(&mut self) -> Result<(Either, TokenInfo), Error> {
         let (mut first_expression, token_info) = self.parse_prod()?;
 
         loop {
@@ -748,20 +813,20 @@ impl<'b, 'a> Parser<'b, 'a> {
                         first_expression = expr;
                         continue;
                     } else {
-                        return Err(format!(
-                            "Parsing Error: Type mismatched at line {}, column {}",
+                        return Err(Error::TypeError(format!(
+                            "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
-                        ));
+                        )));
                     }
                 }
                 Some(Token::Operator(
                     operator_token @ (OperatorToken::PLUS | OperatorToken::MINUS),
                     token_info,
                 )) if first_expression.tipe() == &LanguageType::Boolean => {
-                    return Err(format!(
-                        "Parsing Error: Operator mismatched at line {}, column {}",
+                    return Err(Error::TypeError(format!(
+                        "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
-                    ));
+                    )));
                 }
                 Some(Token::WhiteSpace(_)) => {
                     self.advance();
@@ -774,7 +839,7 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
     }
 
-    fn parse_prod(&mut self) -> Result<(Either, TokenInfo), String> {
+    fn parse_prod(&mut self) -> Result<(Either, TokenInfo), Error> {
         let (mut first_expression, token_info) = self.parse_unary()?;
 
         loop {
@@ -794,20 +859,20 @@ impl<'b, 'a> Parser<'b, 'a> {
                         first_expression = expr;
                         continue;
                     } else {
-                        return Err(format!(
-                            "Parsing Error: Type mismatched at line {}, column {}",
+                        return Err(Error::TypeError(format!(
+                            "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
-                        ));
+                        )));
                     }
                 }
                 Some(Token::Operator(
                     operator_token @ (OperatorToken::STAR | OperatorToken::DIVIDE),
                     token_info,
                 )) if first_expression.tipe() == &LanguageType::Boolean => {
-                    return Err(format!(
-                        "Parsing Error: Operator mismatched at line {}, column {}",
+                    return Err(Error::TypeError(format!(
+                        "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
-                    ));
+                    )));
                 }
 
                 Some(Token::WhiteSpace(_)) => {
@@ -821,7 +886,7 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
     }
 
-    fn parse_unary(&mut self) -> Result<(Either, TokenInfo), String> {
+    fn parse_unary(&mut self) -> Result<(Either, TokenInfo), Error> {
         match self.peek().cloned() {
             Some(Token::Operator(
                 operator @ (OperatorToken::PLUS | OperatorToken::MINUS),
@@ -834,10 +899,10 @@ impl<'b, 'a> Parser<'b, 'a> {
                 if tipe == LanguageType::Number {
                     Ok((unary_expr, token_info))
                 } else {
-                    Err(format!(
-                        "Parsing Error: Type mismatched at line {}, column {}",
+                    Err(Error::TypeError(format!(
+                        "Type Error: Type mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
-                    ))
+                    )))
                 }
             }
             Some(Token::Operator(operator @ OperatorToken::LOGICAL_NOT, token_info)) => {
@@ -848,10 +913,10 @@ impl<'b, 'a> Parser<'b, 'a> {
                 if tipe == LanguageType::Boolean {
                     Ok((unary_expr, token_info))
                 } else {
-                    Err(format!(
-                        "Parsing Error: Type mismatched at line {}, column {}",
+                    Err(Error::TypeError(format!(
+                        "Type Error: Type mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
-                    ))
+                    )))
                 }
             }
             Some(Token::WhiteSpace(_)) => {
@@ -862,7 +927,7 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
     }
 
-    fn parse_bracket(&mut self) -> Result<(Either, TokenInfo), String> {
+    fn parse_bracket(&mut self) -> Result<(Either, TokenInfo), Error> {
         match self.peek().cloned() {
             Some(Token::Symbol(SymbolToken::SmallBracketOpen, token_info)) => {
                 self.advance();
@@ -876,19 +941,23 @@ impl<'b, 'a> Parser<'b, 'a> {
                         self.advance();
                         self.parse_bracket()
                     }
-                    Some(token) => Err(format!(
+                    Some(token) => Err(Error::ParseError(format!(
                         "Parsing Error: No closing bracket found at line {}, column {}",
                         token.get_token_info().line_number,
                         token.get_token_info().column_number
-                    )),
-                    None => Err(format!("Parsing Error: None value encountered")),
+                    ))),
+                    None => Err(Error::ParseError(format!(
+                        "Parsing Error: None value encountered"
+                    ))),
                 }
             }
             _ => self.parse_literal(),
         }
     }
 
-    fn parse_literal(&mut self) -> Result<(Either, TokenInfo), String> {
+    fn parse_literal(&mut self) -> Result<(Either, TokenInfo), Error> {
+        self.consume_optional_whitespace();
+        // println!("debug parse_literal {:?}", self.peek().cloned());
         match self.peek().cloned() {
             Some(Token::Digit(first_digit, digit_token)) => {
                 let mut digits = vec![first_digit];
@@ -905,11 +974,11 @@ impl<'b, 'a> Parser<'b, 'a> {
                         Some(Token::Symbol(SymbolToken::Dot, token_info_symbol))
                             if num_of_dot >= 1 =>
                         {
-                            return Err(format!(
+                            return Err(Error::ParseError(format!(
                 "Parsing Error: Decimal(.) parsing error encountered at line {}, column {}",
                 token_info_symbol.line_number,
                 token_info_symbol.column_number ,
-            ))
+            )));
                         }
                         Some(Token::Digit(val, digit_token)) => {
                             self.advance();
@@ -947,23 +1016,23 @@ impl<'b, 'a> Parser<'b, 'a> {
                 match self.get_reference_to_identifier(&var_name) {
                     Some(identifier) => Ok((Either::Identifier(var_name.to_string(),
                                                             *identifier.tipe()), token_info)),
-                    None => Err(format!(
+                    None => Err(Error::ParseError(format!(
                 "Parsing Error: No variable named {:?} found in scope at line {}, column {}",
                 var_name,
                 token_info.line_number,
                 token_info.column_number,
-            )),
+            ))),
                 }
 
             }
 
-            Some(token) => Err(format!(
+            Some(token) => Err(Error::ParseError(format!(
                 "Parsing Error: Value other than literal (Number, Boolean...) {:?} encountered at line {}, column {}",
                 token.value(),
                 token.get_token_info().line_number,
                 token.get_token_info().column_number,
-            )),
-            None => Err(format!("Parsing Error: None value encountered")),
+            ))),
+            None => Err(Error::TypeError(format!("Type Error: None value encountered"))),
         }
     }
 }
