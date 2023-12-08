@@ -561,16 +561,20 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
     }
 
-    fn consume_optional_semicolon(&mut self) {
+    fn consume_optional_semicolon(&mut self) -> bool {
         if let Some(Token::Symbol(SymbolToken::SemiColon, _)) = self.peek() {
             self.advance();
+            return true;
         }
+        false
     }
 
-    fn consume_optional_whitespace(&mut self) {
+    fn consume_optional_whitespace(&mut self) -> bool {
         if let Some(Token::WhiteSpace(_)) = self.peek() {
             self.advance();
+            return true;
         }
+        false
     }
 
     fn parse_let_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
