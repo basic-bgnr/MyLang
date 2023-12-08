@@ -1,109 +1,7 @@
 use std::{collections::HashMap, format, io::Write, println, unimplemented, unreachable, vec};
 
 fn main() {
-    test()
-}
-struct Environment<'a> {
-    container: HashMap<String, InternalDataStucture>,
-    parent: Option<&'a Environment<'a>>,
-}
-impl<'a> Environment<'a> {
-    fn new() -> Self {
-        Self {
-            container: HashMap::new(),
-            parent: None,
-        }
-    }
-    fn insert(&mut self, lvalue: String, rvalue: InternalDataStucture) {
-        self.container.insert(lvalue, rvalue);
-    }
-    fn get(&self, name: &str) -> Option<&InternalDataStucture> {
-        self.container.get(name).or_else(|| {
-            self.parent
-                .as_ref()
-                .and_then(|parent_env| parent_env.get(name))
-        })
-    }
-    fn create_child(&self) -> Environment {
-        let mut child = Environment::new();
-        child.parent = Some(&self);
-        child
-    }
-}
-
-fn test() {
-    // let mut environment = HashMap::new();
-    let mut environment = Environment::new();
-    let mut prev_identifiers: Option<Vec<Either>> = None;
-
-    'loop_start: loop {
-        let mut line = String::new();
-        print!(">>> ");
-
-        let _ = std::io::stdout().flush();
-        let _ = std::io::stdin().read_line(&mut line).unwrap();
-
-        let line = line.trim_end();
-
-        if line.len() == 0 {
-            continue 'loop_start;
-        }
-        match tokenize_and_parse(line, prev_identifiers.as_deref()) {
-            Ok((identifiers_list, parsed_program)) => {
-                parsed_program
-                    .iter()
-                    .map(|statement| statement.calculate(&mut environment))
-                    .for_each(|result| match result {
-                        InternalDataStucture::Void => (),
-                        _ => println!("{:?}", result),
-                    });
-
-                if let Some(mut idenfier_list) = identifiers_list {
-                    match prev_identifiers {
-                        Some(ref mut prev_identifiers) => {
-                            prev_identifiers.append(&mut idenfier_list)
-                        }
-                        None => {
-                            prev_identifiers = Some(idenfier_list);
-                        }
-                    }
-                }
-            }
-
-            Err(err) => {
-                println!("{:?}", err);
-                continue 'loop_start;
-            }
-        }
-    }
-}
-
-fn tokenize_and_parse(
-    program: &str,
-    previous_identifiers: Option<&[Either]>,
-) -> Result<(Option<Vec<Either>>, Vec<Either>), Error> {
-    let input_chars = program.chars().collect::<Vec<_>>();
-
-    let mut tokenizer = Tokenizer::new(&input_chars);
-    let tokens = tokenizer.tokenize();
-
-    match tokens {
-        Ok(token_list) => {
-            let mut parser = Parser::new(&token_list);
-            // parser.add_reference_to_previous_program(previous_parsed_program);
-            parser.add_reference_to_previous_identifiers(previous_identifiers);
-
-            let parsed_result = parser.parse()?;
-            Ok((parser.get_identifiers_list(), parsed_result))
-        }
-        Err(err) => Err(Error::ParseError(
-            err.into_iter()
-                .map(|x| x + "\n")
-                .collect::<String>()
-                .trim_end()
-                .to_string(),
-        )),
-    }
+    Interpreter::new().interactive_prompt();
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -585,7 +483,7 @@ impl<'b, 'a> Parser<'b, 'a> {
         match identifiers_list {
             Some(identifiers) => {
                 for identifier in identifiers.iter().rev() {
-                    if let identifier @ Either::Identifier(identifier_name, _, _) = identifier {
+                    if let identifier @ Either::Identifier(identifier_name, _) = identifier {
                         if name == identifier_name {
                             return Some(identifier.clone());
                         }
@@ -631,7 +529,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                 break;
             }
         }
-        println!("{:?}", statements);
+        // println!("{:?}", statements);
         Ok(statements)
     }
 
@@ -727,7 +625,6 @@ impl<'b, 'a> Parser<'b, 'a> {
                                         self.push_identifier(&Either::Identifier(
                                             identifier.value(),
                                             *tipe,
-                                            vec![self.get_block_position()],
                                         ));
 
                                         Ok((
@@ -787,7 +684,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                                 let (term, token_info) = self.parse_logical_term()?;
                                 if term.tipe() == identifier.tipe() {
                                     Ok((
-                                        LetStatement::new(identifier_token.value(), term),
+                                        AssignmentStatement::new(identifier_token.value(), term),
                                         token_info,
                                     ))
                                 } else {
@@ -1208,6 +1105,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                         Some(_) =>  {
                             let statement = self.parse_next_statement()?;
                             last_statement_semicolon = self.consume_optional_semicolon();
+                            self.consume_optional_whitespace();
                             // println!("debug curly: {:?} {:?}", statement, self.peek());
                             statements.push(statement);
                         }
@@ -1240,8 +1138,9 @@ enum Either {
     BinaryExpression(Box<BinaryExpression>),
     UnaryExpression(Box<UnaryExpression>),
     LetStatement(Box<LetStatement>),
+    AssignmentStatement(Box<AssignmentStatement>),
     Bool(bool),
-    Identifier(String, LanguageType, Vec<usize>),
+    Identifier(String, LanguageType),
     BlockStatement(Vec<Either>, LanguageType),
     WhileStatement(Box<Either>, Box<Either>, LanguageType),
 }
@@ -1249,9 +1148,7 @@ enum Either {
 impl Either {
     fn clone(&self) -> Self {
         match self {
-            Self::Identifier(name, tipe, stack_position) => {
-                Self::Identifier(name.clone(), tipe.clone(), stack_position.clone())
-            }
+            Self::Identifier(name, tipe) => Self::Identifier(name.clone(), tipe.clone()),
             _ => unimplemented!(),
         }
     }
@@ -1263,71 +1160,12 @@ impl Either {
             Self::BinaryExpression(boxed_binary_expression) => boxed_binary_expression.tipe(),
             Self::UnaryExpression(boxed_unary_expression) => boxed_unary_expression.tipe(),
             Self::LetStatement(boxed_let_statement) => boxed_let_statement.tipe(),
-            Self::Identifier(_, tipe, _) => tipe,
+            Self::AssignmentStatement(boxed_assignment_statement) => {
+                boxed_assignment_statement.tipe()
+            }
+            Self::Identifier(_, tipe) => tipe,
             Self::BlockStatement(_, tipe) => tipe,
             Self::WhileStatement(_, _, tipe) => tipe,
-        }
-    }
-    fn calculate<'a>(&self, environment: &mut Environment<'a>) -> InternalDataStucture {
-        match self {
-            Self::Number(val) => InternalDataStucture::Number(*val),
-
-            Self::Bool(val) => InternalDataStucture::Bool(*val),
-
-            Self::BinaryExpression(boxed_expression) => match &**boxed_expression {
-                BinaryExpression {
-                    left,
-                    right,
-                    operator,
-                } => InternalDataStucture::__match_binary_operation__(
-                    left.calculate(environment),
-                    right.calculate(environment),
-                    *operator,
-                ),
-            },
-            Self::UnaryExpression(boxed_expression) => match &**boxed_expression {
-                UnaryExpression { val, operator } => {
-                    InternalDataStucture::__match_unary_operation__(
-                        val.calculate(environment),
-                        *operator,
-                    )
-                }
-            },
-            Self::LetStatement(boxed_let_statement) => match &**boxed_let_statement {
-                LetStatement { lvalue, rvalue } => {
-                    // println!("{:?}", boxed_let_statement);
-                    let return_val = rvalue.calculate(environment);
-                    environment.insert(lvalue.clone(), return_val);
-                    InternalDataStucture::Void
-                }
-            },
-            Self::Identifier(name, _, _) => environment.get(name).unwrap().clone(),
-
-            Self::BlockStatement(statements, tipe) => {
-                let mut result = InternalDataStucture::Void;
-                let mut child_environment = environment.create_child();
-                for statement in statements {
-                    result = statement.calculate(&mut child_environment);
-                }
-                match tipe {
-                    LanguageType::Void => InternalDataStucture::Void,
-                    _ => result,
-                }
-            }
-
-            Self::WhileStatement(condition, block_statement, tipe) => {
-                let mut result = InternalDataStucture::Void;
-                loop {
-                    match condition.calculate(environment) {
-                        InternalDataStucture::Bool(b) if b == true => {
-                            result = block_statement.calculate(environment);
-                        }
-                        InternalDataStucture::Bool(b) if b == false => break,
-                        _ => unreachable!(),
-                    }
-                }
-                result
-            }
         }
     }
 }
@@ -1339,6 +1177,76 @@ enum Error {
     IdentifierError(String),
 }
 
+#[derive(Debug)]
+struct BinaryExpression {
+    left: Either,
+    right: Either,
+    operator: OperatorToken,
+}
+impl BinaryExpression {
+    fn new(left: Either, right: Either, operator: OperatorToken) -> Either {
+        Either::BinaryExpression(Box::new(Self {
+            left: left,
+            right: right,
+            operator: operator,
+        }))
+    }
+    fn tipe(&self) -> &LanguageType {
+        self.operator.tipe()
+    }
+}
+#[derive(Debug)]
+struct UnaryExpression {
+    val: Either,
+    operator: OperatorToken,
+}
+impl UnaryExpression {
+    fn new(val: Either, operator: OperatorToken) -> Either {
+        Either::UnaryExpression(Box::new(Self {
+            val: val,
+            operator: operator,
+        }))
+    }
+    fn tipe(&self) -> &LanguageType {
+        self.operator.tipe()
+    }
+}
+
+#[derive(Debug)]
+struct AssignmentStatement {
+    lvalue: String,
+    rvalue: Either,
+}
+
+impl AssignmentStatement {
+    fn new(lvalue: String, rvalue: Either) -> Either {
+        Either::AssignmentStatement(Box::new(Self {
+            lvalue: lvalue,
+            rvalue: rvalue,
+        }))
+    }
+    fn tipe(&self) -> &LanguageType {
+        self.rvalue.tipe()
+    }
+}
+#[derive(Debug)]
+struct LetStatement {
+    lvalue: String,
+    rvalue: Either,
+}
+
+impl LetStatement {
+    fn new(lvalue: String, rvalue: Either) -> Either {
+        Either::LetStatement(Box::new(Self {
+            lvalue: lvalue,
+            rvalue: rvalue,
+        }))
+    }
+    fn tipe(&self) -> &LanguageType {
+        self.rvalue.tipe()
+    }
+}
+///////////////////////////////////////////////////////// Interpreter Code /////////////////////////////////////////////////
 #[derive(Debug, Clone, Copy)]
 enum InternalDataStucture {
     Number(f64),
@@ -1397,56 +1305,199 @@ impl InternalDataStucture {
         }
     }
 }
-
 #[derive(Debug)]
-struct BinaryExpression {
-    left: Either,
-    right: Either,
-    operator: OperatorToken,
-}
-impl BinaryExpression {
-    fn new(left: Either, right: Either, operator: OperatorToken) -> Either {
-        Either::BinaryExpression(Box::new(Self {
-            left: left,
-            right: right,
-            operator: operator,
-        }))
-    }
-    fn tipe(&self) -> &LanguageType {
-        self.operator.tipe()
-    }
-}
-#[derive(Debug)]
-struct UnaryExpression {
-    val: Either,
-    operator: OperatorToken,
-}
-impl UnaryExpression {
-    fn new(val: Either, operator: OperatorToken) -> Either {
-        Either::UnaryExpression(Box::new(Self {
-            val: val,
-            operator: operator,
-        }))
-    }
-    fn tipe(&self) -> &LanguageType {
-        self.operator.tipe()
-    }
+struct Environment {
+    container: Vec<HashMap<String, InternalDataStucture>>,
 }
 
-#[derive(Debug)]
-struct LetStatement {
-    lvalue: String,
-    rvalue: Either,
+impl Environment {
+    fn new() -> Self {
+        Self {
+            container: vec![HashMap::new()],
+        }
+    }
+    fn insert_new(&mut self, lvalue: String, rvalue: InternalDataStucture) {
+        self.container.last_mut().unwrap().insert(lvalue, rvalue);
+    }
+    fn insert(&mut self, lvalue: String, rvalue: InternalDataStucture) {
+        let mut location = 0;
+        for (i, child_container) in self.container.iter().enumerate().rev() {
+            if child_container.contains_key(&lvalue) {
+                location = i;
+            }
+        }
+        self.container[location].insert(lvalue, rvalue);
+    }
+    fn get(&self, name: &str) -> Option<&InternalDataStucture> {
+        // self.container.get(name).or_else(|| {
+        //     self.parent
+        //         .as_ref()
+        //         .and_then(|parent_env| parent_env.get(name))
+        // })
+        for container in self.container.iter().rev() {
+            if container.contains_key(name) {
+                return container.get(name);
+            }
+        }
+        None
+    }
+    fn create_child(&mut self) {
+        self.container.push(HashMap::new());
+    }
+    fn pop_child(&mut self) {
+        self.container.pop();
+    }
+}
+struct Interpreter {
+    environment: Environment,
+    previous_identifiers: Option<Vec<Either>>,
 }
 
-impl LetStatement {
-    fn new(lvalue: String, rvalue: Either) -> Either {
-        Either::LetStatement(Box::new(Self {
-            lvalue: lvalue,
-            rvalue: rvalue,
-        }))
+impl Interpreter {
+    fn new() -> Self {
+        Interpreter {
+            environment: Environment::new(),
+            previous_identifiers: None,
+        }
     }
-    fn tipe(&self) -> &LanguageType {
-        self.rvalue.tipe()
+    fn append_new_identifiers(&mut self, new_identifiers: Option<Vec<Either>>) {
+        if let Some(mut new_identifiers) = new_identifiers {
+            match self.previous_identifiers {
+                Some(ref mut previous_identifiers) => {
+                    previous_identifiers.append(&mut new_identifiers)
+                }
+                None => {
+                    self.previous_identifiers = Some(new_identifiers);
+                }
+            }
+        }
+    }
+
+    fn tokenize_and_parse(&self, input: &str) -> Result<(Vec<Either>, Option<Vec<Either>>), Error> {
+        let input_chars = input.chars().collect::<Vec<_>>();
+
+        let mut tokenizer = Tokenizer::new(&input_chars);
+        let tokens = tokenizer.tokenize();
+
+        match tokens {
+            Ok(token_list) => {
+                let mut parser = Parser::new(&token_list);
+                parser.add_reference_to_previous_identifiers(self.previous_identifiers.as_deref());
+
+                let parsed_statement = parser.parse()?;
+
+                Ok((parsed_statement, parser.get_identifiers_list()))
+            }
+            Err(err) => Err(Error::ParseError(
+                err.into_iter()
+                    .map(|x| x + "\n")
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string(),
+            )),
+        }
+    }
+    fn calculate_statement(&mut self, statement: &Either) -> InternalDataStucture {
+        match statement {
+            Either::Number(val) => InternalDataStucture::Number(*val),
+
+            Either::Bool(val) => InternalDataStucture::Bool(*val),
+
+            Either::BinaryExpression(boxed_expression) => match &**boxed_expression {
+                BinaryExpression {
+                    left,
+                    right,
+                    operator,
+                } => InternalDataStucture::__match_binary_operation__(
+                    self.calculate_statement(&left),
+                    self.calculate_statement(&right),
+                    *operator,
+                ),
+            },
+            Either::UnaryExpression(boxed_expression) => match &**boxed_expression {
+                UnaryExpression { val, operator } => {
+                    InternalDataStucture::__match_unary_operation__(
+                        self.calculate_statement(&val),
+                        *operator,
+                    )
+                }
+            },
+            Either::LetStatement(boxed_let_statement) => match &**boxed_let_statement {
+                LetStatement { lvalue, rvalue } => {
+                    let return_val = self.calculate_statement(&rvalue);
+                    self.environment.insert_new(lvalue.clone(), return_val);
+                    InternalDataStucture::Void
+                }
+            },
+            Either::AssignmentStatement(boxed_assignment_statement) => {
+                match &**boxed_assignment_statement {
+                    AssignmentStatement { lvalue, rvalue } => {
+                        let return_val = self.calculate_statement(&rvalue);
+                        self.environment.insert(lvalue.clone(), return_val);
+                        InternalDataStucture::Void
+                    }
+                }
+            }
+            Either::Identifier(name, _) => self.environment.get(&name).unwrap().clone(),
+
+            Either::BlockStatement(statements, tipe) => {
+                let mut result = InternalDataStucture::Void;
+                self.environment.create_child();
+                for statement in statements {
+                    result = self.calculate_statement(statement);
+                }
+                self.environment.pop_child();
+                match tipe {
+                    LanguageType::Void => InternalDataStucture::Void,
+                    _ => result,
+                }
+            }
+
+            Either::WhileStatement(condition, block_statement, _) => {
+                let mut result = InternalDataStucture::Void;
+                loop {
+                    match self.calculate_statement(condition) {
+                        InternalDataStucture::Bool(b) if b == true => {
+                            result = self.calculate_statement(block_statement);
+                        }
+                        InternalDataStucture::Bool(b) if b == false => break,
+                        _ => unreachable!(),
+                    }
+                }
+                result
+            }
+        }
+    }
+
+    fn interpret(&mut self, input: &str) {
+        match self.tokenize_and_parse(input) {
+            Ok((parsed_statements, new_identifiers)) => {
+                for statement in parsed_statements {
+                    match self.calculate_statement(&statement) {
+                        InternalDataStucture::Void => continue,
+                        result => println!("{:?}", result),
+                    }
+                }
+                self.append_new_identifiers(new_identifiers);
+            }
+            Err(error) => println!("{:?}", error),
+        }
+    }
+
+    fn interactive_prompt(&mut self) {
+        'loop_start: loop {
+            let mut line = String::new();
+            print!(">>> ");
+
+            let _ = std::io::stdout().flush();
+            let _ = std::io::stdin().read_line(&mut line).unwrap();
+
+            let line = line.trim_end();
+
+            if line.len() == 0 {
+                continue 'loop_start;
+            }
+            self.interpret(&line);
+        }
     }
 }
