@@ -1,4 +1,4 @@
-use std::{collections::HashMap, format, io::Write, println, unreachable, vec};
+use std::{collections::HashMap, format, io::Write, println, unimplemented, unreachable, vec};
 
 fn main() {
     test()
@@ -6,7 +6,7 @@ fn main() {
 
 fn test() {
     let mut environment = HashMap::new();
-    let mut prev_identifiers: Option<Vec<(Either, usize)>> = None;
+    let mut prev_identifiers: Option<Vec<Either>> = None;
 
     'loop_start: loop {
         let mut line = String::new();
@@ -52,8 +52,8 @@ fn test() {
 
 fn tokenize_and_parse(
     program: &str,
-    previous_identifiers: Option<&[(Either, usize)]>,
-) -> Result<(Option<Vec<(Either, usize)>>, Vec<Either>), Error> {
+    previous_identifiers: Option<&[Either]>,
+) -> Result<(Option<Vec<Either>>, Vec<Either>), Error> {
     let input_chars = program.chars().collect::<Vec<_>>();
 
     let mut tokenizer = Tokenizer::new(&input_chars);
@@ -474,18 +474,18 @@ impl<'a> Tokenizer<'a> {
     }
 }
 
-struct Parser<'a> {
+struct Parser<'b, 'a: 'b> {
     tokens: &'a [Token<'a>],
     index: usize,
     len: usize,
     // program: Vec<Either>,
     block_position: usize,
-    identifiers_list: Option<Vec<(Either, usize)>>, //usize is the block_position of the identifier
+    identifiers_list: Option<Vec<Either>>, //usize is the block_position of the identifier
     // prev_program: Option<&'b [Either]>,
-    previous_identifiers: Option<&'a [(Either, usize)]>,
+    previous_identifiers: Option<&'b [Either]>,
 }
 
-impl<'a> Parser<'a> {
+impl<'b, 'a> Parser<'b, 'a> {
     fn new(tokens: &'a [Token<'a>]) -> Self {
         Parser {
             tokens: tokens,
@@ -510,7 +510,7 @@ impl<'a> Parser<'a> {
 
     fn add_reference_to_previous_identifiers(
         &mut self,
-        previous_identifiers: Option<&'a [(Either, usize)]>,
+        previous_identifiers: Option<&'b [Either]>,
     ) {
         self.previous_identifiers = previous_identifiers;
     }
@@ -518,52 +518,44 @@ impl<'a> Parser<'a> {
         self.index = index;
     }
 
-    fn get_identifiers_list(self) -> Option<Vec<(Either, usize)>> {
+    fn get_identifiers_list(self) -> Option<Vec<Either>> {
         self.identifiers_list
     }
 
     fn push_identifier(&mut self, identifier: &Either) {
-        if let Either::Identifier(name, tipe) = &identifier {
-            let identifier = Either::Identifier(name.clone(), tipe.clone());
-            let value = (identifier, self.get_block_position());
-            if self.identifiers_list.is_none() {
-                self.identifiers_list = Some(vec![value]);
-            } else {
-                self.identifiers_list.as_mut().unwrap().push(value);
-            }
+        if self.identifiers_list.is_none() {
+            self.identifiers_list = Some(vec![identifier.clone()]);
+        } else {
+            self.identifiers_list
+                .as_mut()
+                .unwrap()
+                .push(identifier.clone());
         }
     }
 
-    fn get_reference_to_identifier(&self, name: &str) -> Option<Either> {
-        match &self.identifiers_list {
+    fn match_identifier_in_list(
+        &self,
+        name: &str,
+        identifiers_list: Option<&'b [Either]>,
+    ) -> Option<Either> {
+        match identifiers_list {
             Some(identifiers) => {
-                for (identifier, block_position) in identifiers.iter().rev() {
-                    if let Either::Identifier(identifier_name, _) = identifier {
+                for identifier in identifiers.iter().rev() {
+                    if let identifier @ Either::Identifier(identifier_name, _, _) = identifier {
                         if name == identifier_name {
-                            if let Either::Identifier(name, tipe) = identifier {
-                                return Some(Either::Identifier(name.clone(), tipe.clone()));
-                            }
+                            return Some(identifier.clone());
                         }
                     }
                 }
                 None
             }
-            None => match self.previous_identifiers {
-                Some(previous_identifiers) => {
-                    for (identifier, block_position) in previous_identifiers.iter().rev() {
-                        if let Either::Identifier(identifier_name, _) = identifier {
-                            if name == identifier_name {
-                                if let Either::Identifier(name, tipe) = identifier {
-                                    return Some(Either::Identifier(name.clone(), tipe.clone()));
-                                }
-                            }
-                        }
-                    }
-                    None
-                }
-                None => None,
-            },
+            None => None,
         }
+    }
+
+    fn get_reference_to_identifier(&self, name: &str) -> Option<Either> {
+        self.match_identifier_in_list(name, self.identifiers_list.as_deref())
+            .or_else(|| self.match_identifier_in_list(name, self.previous_identifiers))
     }
 
     fn parse_next_statement(&mut self) -> Result<Either, Error> {
@@ -662,7 +654,8 @@ impl<'a> Parser<'a> {
                                     _ => {
                                         self.push_identifier(&Either::Identifier(
                                             identifier.value(),
-                                            *term.tipe(),
+                                            *tipe,
+                                            vec![self.get_block_position()],
                                         ));
 
                                         Ok((
@@ -1098,8 +1091,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let var_name = var_name.iter().collect::<String>();
                 match self.get_reference_to_identifier(&var_name) {
-                    Some(identifier) => Ok((Either::Identifier(var_name.to_string(),
-                                                            *identifier.tipe()), token_info)),
+                    Some(identifier) => Ok((identifier.clone(), token_info)),
                     None => Err(Error::ParseError(format!(
                 "Parsing Error: No variable named {:?} found in scope at line {}, column {}",
                 var_name,
@@ -1170,11 +1162,20 @@ enum Either {
     UnaryExpression(Box<UnaryExpression>),
     LetStatement(Box<LetStatement>),
     Bool(bool),
-    Identifier(String, LanguageType),
+    Identifier(String, LanguageType, Vec<usize>),
     BlockStatement(Vec<Either>, LanguageType),
 }
 
 impl Either {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Identifier(name, tipe, stack_position) => {
+                Self::Identifier(name.clone(), tipe.clone(), stack_position.clone())
+            }
+            _ => unimplemented!(),
+        }
+    }
+
     fn tipe(&self) -> &LanguageType {
         match self {
             Self::Number(_) => &LanguageType::Number,
@@ -1182,7 +1183,7 @@ impl Either {
             Self::BinaryExpression(boxed_binary_expression) => boxed_binary_expression.tipe(),
             Self::UnaryExpression(boxed_unary_expression) => boxed_unary_expression.tipe(),
             Self::LetStatement(boxed_let_statement) => boxed_let_statement.tipe(),
-            Self::Identifier(_, tipe) => tipe,
+            Self::Identifier(_, tipe, _) => tipe,
             Self::BlockStatement(_, tipe) => tipe,
         }
     }
@@ -1222,7 +1223,7 @@ impl Either {
                     InternalDataStucture::Void
                 }
             },
-            Self::Identifier(name, _) => environment.get(name).unwrap().clone(),
+            Self::Identifier(name, _, _) => environment.get(name).unwrap().clone(),
 
             Self::BlockStatement(statements, tipe) => {
                 let mut result = InternalDataStucture::Void;
