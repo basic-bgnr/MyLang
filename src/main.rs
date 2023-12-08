@@ -6,7 +6,7 @@ fn main() {
 
 fn test() {
     let mut environment = HashMap::new();
-    let mut prev_parsed_program = Vec::new();
+    let mut prev_identifiers: Option<Vec<(Either, usize)>> = None;
 
     'loop_start: loop {
         let mut line = String::new();
@@ -20,8 +20,8 @@ fn test() {
         if line.len() == 0 {
             continue 'loop_start;
         }
-        match tokenize_and_parse(line, &prev_parsed_program) {
-            Ok(mut parsed_program) => {
+        match tokenize_and_parse(line, prev_identifiers.as_deref()) {
+            Ok((identifiers_list, parsed_program)) => {
                 parsed_program
                     .iter()
                     .map(|statement| statement.calculate(&mut environment))
@@ -29,7 +29,17 @@ fn test() {
                         InternalDataStucture::Void => (),
                         _ => println!("{:?}", result),
                     });
-                prev_parsed_program.append(&mut parsed_program);
+
+                if let Some(mut idenfier_list) = identifiers_list {
+                    match prev_identifiers {
+                        Some(ref mut prev_identifiers) => {
+                            prev_identifiers.append(&mut idenfier_list)
+                        }
+                        None => {
+                            prev_identifiers = Some(idenfier_list);
+                        }
+                    }
+                }
             }
 
             Err(err) => {
@@ -42,8 +52,8 @@ fn test() {
 
 fn tokenize_and_parse(
     program: &str,
-    previous_parsed_program: &[Either],
-) -> Result<Vec<Either>, Error> {
+    previous_identifiers: Option<&[(Either, usize)]>,
+) -> Result<(Option<Vec<(Either, usize)>>, Vec<Either>), Error> {
     let input_chars = program.chars().collect::<Vec<_>>();
 
     let mut tokenizer = Tokenizer::new(&input_chars);
@@ -52,10 +62,11 @@ fn tokenize_and_parse(
     match tokens {
         Ok(token_list) => {
             let mut parser = Parser::new(&token_list);
-            parser.add_reference_to_previous_program(previous_parsed_program);
+            // parser.add_reference_to_previous_program(previous_parsed_program);
+            parser.add_reference_to_previous_identifiers(previous_identifiers);
 
             let parsed_result = parser.parse()?;
-            Ok(parsed_result)
+            Ok((parser.identifiers_list, parsed_result))
         }
         Err(err) => Err(Error::ParseError(
             err.into_iter()
@@ -463,84 +474,128 @@ impl<'a> Tokenizer<'a> {
     }
 }
 
-struct Parser<'b, 'a: 'b> {
+struct Parser<'a> {
     tokens: &'a [Token<'a>],
     index: usize,
     len: usize,
-    program: Vec<Either>,
-    prev_program: Option<&'b [Either]>,
+    // program: Vec<Either>,
+    block_position: usize,
+    identifiers_list: Option<Vec<(Either, usize)>>, //usize is the block_position of the identifier
+    // prev_program: Option<&'b [Either]>,
+    previous_identifiers: Option<&'a [(Either, usize)]>,
 }
 
-impl<'b, 'a> Parser<'b, 'a> {
+impl<'a> Parser<'a> {
     fn new(tokens: &'a [Token<'a>]) -> Self {
         Parser {
             tokens: tokens,
             index: 0,
             len: tokens.len(),
-            program: Vec::new(),
-            prev_program: None,
+            // program: Vec::new(),
+            block_position: 0,
+            identifiers_list: None,
+            // prev_program: None,
+            previous_identifiers: None,
         }
     }
-
-    fn add_reference_to_previous_program(&mut self, prev_program: &'b [Either]) {
-        self.prev_program = Some(prev_program);
+    fn increment_block_position(&mut self) {
+        self.block_position += 1;
+    }
+    fn decrement_block_position(&mut self) {
+        self.block_position += 1;
+    }
+    fn get_block_position(&self) -> usize {
+        self.block_position
     }
 
+    fn add_reference_to_previous_identifiers(
+        &mut self,
+        previous_identifiers: Option<&'a [(Either, usize)]>,
+    ) {
+        self.previous_identifiers = previous_identifiers;
+    }
     fn reset_index_at(&mut self, index: usize) {
         self.index = index;
     }
 
-    fn get_reference_to_identifier(&self, name: &str) -> Option<Either> {
-        for statement in self.program.iter().rev() {
-            match statement {
-                Either::LetStatement(boxed_let) if boxed_let.lvalue == name => {
-                    return Some(Either::Identifier(
-                        boxed_let.lvalue.clone(),
-                        *boxed_let.rvalue.tipe(),
-                    ))
-                }
-                _ => continue,
-            }
-        }
-
-        match self.prev_program {
-            Some(prev_program) => {
-                for statement in prev_program.iter().rev() {
-                    match statement {
-                        Either::LetStatement(boxed_let) if boxed_let.lvalue == name => {
-                            return Some(Either::Identifier(
-                                boxed_let.lvalue.clone(),
-                                *boxed_let.rvalue.tipe(),
-                            ))
-                        }
-                        _ => continue,
-                    }
-                }
-            }
-            None => return None,
-        };
-        None
+    fn get_identifiers_list(self) -> Option<Vec<(Either, usize)>> {
+        self.identifiers_list
     }
 
-    fn parse(mut self) -> Result<Vec<Either>, Error> {
-        loop {
-            let (parsed_statement, _) = self
-                .parse_let_statement()
-                .or_else(|e| match e {
-                    Error::ParseError(_) => self.parse_assignment_statement(),
-                    Error::TypeError(_) => Err(e),
-                })
-                .or_else(|e| match e {
-                    Error::ParseError(_) => self.parse_logical_term(),
-                    Error::TypeError(_) => Err(e),
-                })?;
-
-            self.program.push(parsed_statement);
-            self.consume_optional_semicolon();
-            if let Some(Token::EOF(_)) = self.peek() {
-                return Ok(self.program);
+    fn push_identifier(&mut self, identifier: &Either) {
+        if let Either::Identifier(name, tipe) = &identifier {
+            let identifier = Either::Identifier(name.clone(), tipe.clone());
+            let value = (identifier, self.get_block_position());
+            if self.identifiers_list.is_none() {
+                self.identifiers_list = Some(vec![value]);
+            } else {
+                self.identifiers_list.as_mut().unwrap().push(value);
             }
         }
+    }
+
+    fn get_reference_to_identifier(&self, name: &str) -> Option<Either> {
+        match &self.identifiers_list {
+            Some(identifiers) => {
+                for (identifier, block_position) in identifiers.iter().rev() {
+                    if let Either::Identifier(identifier_name, _) = identifier {
+                        if name == identifier_name {
+                            if let Either::Identifier(name, tipe) = identifier {
+                                return Some(Either::Identifier(name.clone(), tipe.clone()));
+                            }
+                        }
+                    }
+                }
+                None
+            }
+            None => match self.previous_identifiers {
+                Some(previous_identifiers) => {
+                    for (identifier, block_position) in previous_identifiers.iter().rev() {
+                        if let Either::Identifier(identifier_name, _) = identifier {
+                            if name == identifier_name {
+                                if let Either::Identifier(name, tipe) = identifier {
+                                    return Some(Either::Identifier(name.clone(), tipe.clone()));
+                                }
+                            }
+                        }
+                    }
+                    None
+                }
+                None => None,
+            },
+        }
+    }
+
+    fn parse_next_statement(&mut self) -> Result<Either, Error> {
+        self.parse_let_statement()
+            .or_else(|e| match e {
+                Error::ParseError(_) => self.parse_assignment_statement(),
+                Error::TypeError(_) => Err(e),
+            })
+            .or_else(|e| match e {
+                Error::ParseError(_) => self.parse_assignment_statement(),
+                Error::TypeError(_) => Err(e),
+            })
+            .or_else(|e| match e {
+                Error::ParseError(_) => self.parse_logical_term(),
+                Error::TypeError(_) => Err(e),
+            })
+            .map(|(statement, _)| statement)
+    }
+
+    fn parse(&mut self) -> Result<Vec<Either>, Error> {
+        let mut statements = Vec::new();
+        loop {
+            let parsed_statement = self.parse_next_statement()?;
+            self.consume_optional_semicolon();
+            statements.push(parsed_statement);
+
+            if let Some(Token::EOF(_)) = self.peek() {
+                break;
+            }
+        }
+        // println!("{:?}", statements);
+        Ok(statements)
     }
 
     fn advance(&mut self) -> Option<&Token> {
@@ -586,7 +641,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                 self.advance();
                 self.advance(); //consume whitespace
                 match self.peek().cloned() {
-                    Some(Token::Identifier(identifier, token_info)) => {
+                    Some(identifier @ Token::Identifier(_, token_info)) => {
                         self.advance();
                         self.consume_optional_whitespace();
                         match self.peek().cloned() {
@@ -596,10 +651,26 @@ impl<'b, 'a> Parser<'b, 'a> {
                                 self.advance();
                                 self.consume_optional_whitespace();
                                 let (term, token_info) = self.parse_logical_term()?;
-                                Ok((
-                                    LetStatement::new(identifier.iter().collect(), term),
-                                    token_info,
-                                ))
+
+                                let tipe = term.tipe();
+
+                                match tipe {
+                                    LanguageType::Void => Err(Error::TypeError(format!(
+                                        "Type Error: Void type found at line {}, column {}",
+                                        token_info.line_number, token_info.column_number
+                                    ))),
+                                    _ => {
+                                        self.push_identifier(&Either::Identifier(
+                                            identifier.value(),
+                                            *term.tipe(),
+                                        ));
+
+                                        Ok((
+                                            LetStatement::new(identifier.value(), term),
+                                            token_info,
+                                        ))
+                                    }
+                                }
                             }
                             Some(token) => Err(Error::ParseError(format!(
                                 "Parsing Error: No equal found at line {}, column {}",
@@ -694,6 +765,7 @@ impl<'b, 'a> Parser<'b, 'a> {
             ))),
         }
     }
+
     fn parse_logical_term(&mut self) -> Result<(Either, TokenInfo), Error> {
         let (mut first_expression, token_info) = self.parse_comparison_term()?;
         // self.consume_optional_whitespace();
@@ -1037,9 +1109,46 @@ impl<'b, 'a> Parser<'b, 'a> {
                 }
 
             }
+            Some(Token::Symbol(SymbolToken::CurlyBracketOpen, token_info)) => {
+                self.advance();
+                self.consume_optional_whitespace();
+                let mut statements:Vec<Either> = Vec::new();
+                let mut last_statement_semicolon = false;
+                loop {
+                    match self.peek().cloned(){
+                        Some(Token::Symbol(SymbolToken::CurlyBracketClose, _)) => {
+                            self.advance();
+                            self.consume_optional_semicolon();
+                            match statements.last() {
+                                Some(last_statement) if !last_statement_semicolon => {
+                                    let tipe = last_statement.tipe().clone();
+                                    return Ok( (Either::BlockStatement(statements, tipe), token_info ) );
+                                }
+                                Some(_) => {
+                                    return Ok( (Either::BlockStatement(statements, LanguageType::Void), token_info) );
+                                }
+                                None => {
+                                    return Ok( (Either::BlockStatement(statements, LanguageType::Void), token_info) );
+                                }
+                            }
+                        }
+                        Some(Token::EOF(_)) => {
+                            return Err(Error::TypeError(format!("EOF encountered")));
+                        }
+                        Some(_) =>  {
+                            let statement = self.parse_next_statement()?;
+                            last_statement_semicolon = self.consume_optional_semicolon();
+                            statements.push(statement);
+                        }
+                        None => {
+                            return Err(Error::TypeError(format!("None encountered")));
+                        }
+                    }
+                }
+            }
 
             Some(token) => Err(Error::ParseError(format!(
-                "Parsing Error: Value other than literal (Number, Boolean...) {:?} encountered at line {}, column {}",
+                "Parsing Error: Value other than literal (Number, Boolean...) '{}' encountered at line {}, column {}",
                 token.value(),
                 token.get_token_info().line_number,
                 token.get_token_info().column_number,
@@ -1048,11 +1157,11 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
     }
 }
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum LanguageType {
     Number,
     Boolean,
+    Void,
 }
 #[derive(Debug)]
 enum Either {
@@ -1062,6 +1171,7 @@ enum Either {
     LetStatement(Box<LetStatement>),
     Bool(bool),
     Identifier(String, LanguageType),
+    BlockStatement(Vec<Either>, LanguageType),
 }
 
 impl Either {
@@ -1073,6 +1183,7 @@ impl Either {
             Self::UnaryExpression(boxed_unary_expression) => boxed_unary_expression.tipe(),
             Self::LetStatement(boxed_let_statement) => boxed_let_statement.tipe(),
             Self::Identifier(_, tipe) => tipe,
+            Self::BlockStatement(_, tipe) => tipe,
         }
     }
     fn calculate(
@@ -1112,6 +1223,17 @@ impl Either {
                 }
             },
             Self::Identifier(name, _) => environment.get(name).unwrap().clone(),
+
+            Self::BlockStatement(statements, tipe) => {
+                let mut result = InternalDataStucture::Void;
+                for statement in statements {
+                    result = statement.calculate(environment);
+                }
+                match tipe {
+                    LanguageType::Void => InternalDataStucture::Void,
+                    _ => result,
+                }
+            }
         }
     }
 }
