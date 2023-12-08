@@ -603,9 +603,9 @@ impl<'b, 'a> Parser<'b, 'a> {
     }
 
     fn parse_next_statement(&mut self) -> Result<Either, Error> {
-        self.parse_let_statement()
+        self.parse_while_statement()
             .or_else(|e| match e {
-                Error::ParseError(_) => self.parse_assignment_statement(),
+                Error::ParseError(_) => self.parse_let_statement(),
                 Error::TypeError(_) | Error::IdentifierError(_) => Err(e),
             })
             .or_else(|e| match e {
@@ -631,7 +631,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                 break;
             }
         }
-        // println!("{:?}", statements);
+        println!("{:?}", statements);
         Ok(statements)
     }
 
@@ -667,6 +667,33 @@ impl<'b, 'a> Parser<'b, 'a> {
             return true;
         }
         false
+    }
+    fn parse_while_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
+        self.consume_optional_whitespace();
+        match self.peek().cloned() {
+            Some(Token::Keyword(keyword, token_info_while)) if keyword == KeywordToken::While => {
+                self.advance();
+                self.consume_optional_whitespace();
+                let (condition_expression, _) = self.parse_logical_term()?;
+                self.consume_optional_whitespace();
+                let (block_expression, _) = self.parse_logical_term()?;
+                let tipe = block_expression.tipe().clone();
+                Ok((
+                    Either::WhileStatement(
+                        Box::new(condition_expression),
+                        Box::new(block_expression),
+                        tipe,
+                    ),
+                    token_info_while,
+                ))
+            }
+            Some(token) => Err(Error::ParseError(format!(
+                "Parsing Error: Cannot parse while statement found at line {}, column {}",
+                token.get_token_info().line_number,
+                token.get_token_info().column_number
+            ))),
+            None => todo!(),
+        }
     }
 
     fn parse_let_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
@@ -1216,6 +1243,7 @@ enum Either {
     Bool(bool),
     Identifier(String, LanguageType, Vec<usize>),
     BlockStatement(Vec<Either>, LanguageType),
+    WhileStatement(Box<Either>, Box<Either>, LanguageType),
 }
 
 impl Either {
@@ -1237,6 +1265,7 @@ impl Either {
             Self::LetStatement(boxed_let_statement) => boxed_let_statement.tipe(),
             Self::Identifier(_, tipe, _) => tipe,
             Self::BlockStatement(_, tipe) => tipe,
+            Self::WhileStatement(_, _, tipe) => tipe,
         }
     }
     fn calculate<'a>(&self, environment: &mut Environment<'a>) -> InternalDataStucture {
@@ -1284,6 +1313,20 @@ impl Either {
                     LanguageType::Void => InternalDataStucture::Void,
                     _ => result,
                 }
+            }
+
+            Self::WhileStatement(condition, block_statement, tipe) => {
+                let mut result = InternalDataStucture::Void;
+                loop {
+                    match condition.calculate(environment) {
+                        InternalDataStucture::Bool(b) if b == true => {
+                            result = block_statement.calculate(environment);
+                        }
+                        InternalDataStucture::Bool(b) if b == false => break,
+                        _ => unreachable!(),
+                    }
+                }
+                result
             }
         }
     }
