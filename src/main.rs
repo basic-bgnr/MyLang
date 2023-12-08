@@ -508,6 +508,7 @@ struct Parser<'b, 'a: 'b> {
     len: usize,
     // program: Vec<Either>,
     block_position: usize,
+    num_identifiers_in_block: Vec<usize>,
     identifiers_list: Option<Vec<Either>>, //usize is the block_position of the identifier
     // prev_program: Option<&'b [Either]>,
     previous_identifiers: Option<&'b [Either]>,
@@ -521,19 +522,32 @@ impl<'b, 'a> Parser<'b, 'a> {
             len: tokens.len(),
             // program: Vec::new(),
             block_position: 0,
+            num_identifiers_in_block: vec![0],
             identifiers_list: None,
             // prev_program: None,
             previous_identifiers: None,
         }
     }
-    fn increment_block_position(&mut self) {
-        self.block_position += 1;
+    fn increment_num_identifier_in_current_block(&mut self) {
+        let block_postion = self.get_block_position();
+        self.num_identifiers_in_block[block_postion] += 1;
     }
-    fn decrement_block_position(&mut self) {
-        self.block_position += 1;
-    }
+
     fn get_block_position(&self) -> usize {
         self.block_position
+    }
+    fn increment_block_position(&mut self) {
+        self.block_position += 1;
+        self.num_identifiers_in_block.push(0)
+    }
+    fn decrement_block_position(&mut self) {
+        let current_block_position = self.block_position;
+        let num_identifiers_to_pop = self.num_identifiers_in_block[current_block_position];
+        for _ in 0..num_identifiers_to_pop {
+            self.identifiers_list.as_mut().unwrap().pop();
+        }
+        self.block_position -= 1;
+        self.num_identifiers_in_block.pop();
     }
 
     fn add_reference_to_previous_identifiers(
@@ -559,6 +573,8 @@ impl<'b, 'a> Parser<'b, 'a> {
                 .unwrap()
                 .push(identifier.clone());
         }
+
+        self.increment_num_identifier_in_current_block();
     }
 
     fn match_identifier_in_list(
@@ -1132,6 +1148,9 @@ impl<'b, 'a> Parser<'b, 'a> {
 
             }
             Some(Token::Symbol(SymbolToken::CurlyBracketOpen, token_info)) => {
+                // println!("debug curly: {:?}", "here");
+                self.increment_block_position();
+
                 self.advance();
                 self.consume_optional_whitespace();
                 let mut statements:Vec<Either> = Vec::new();
@@ -1139,6 +1158,8 @@ impl<'b, 'a> Parser<'b, 'a> {
                 loop {
                     match self.peek().cloned(){
                         Some(Token::Symbol(SymbolToken::CurlyBracketClose, _)) => {
+                            self.decrement_block_position();
+
                             self.advance();
                             self.consume_optional_semicolon();
                             match statements.last() {
@@ -1160,6 +1181,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                         Some(_) =>  {
                             let statement = self.parse_next_statement()?;
                             last_statement_semicolon = self.consume_optional_semicolon();
+                            // println!("debug curly: {:?} {:?}", statement, self.peek());
                             statements.push(statement);
                         }
                         None => {
