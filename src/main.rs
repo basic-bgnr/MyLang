@@ -72,16 +72,18 @@ enum KeywordToken {
     Let,
     True,
     False,
+    While,
 }
 impl KeywordToken {
-    fn get_all() -> [KeywordToken; 3] {
-        [Self::Let, Self::True, Self::False]
+    fn get_all() -> [KeywordToken; 4] {
+        [Self::Let, Self::True, Self::False, Self::While]
     }
     fn value(&self) -> &str {
         match self {
             Self::Let => "let",
             Self::True => "true",
             Self::False => "false",
+            Self::While => "while",
         }
     }
     fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
@@ -97,9 +99,11 @@ enum SymbolToken {
     Equal,
     UnderScore,
     SemiColon,
+    CurlyBracketOpen,
+    CurlyBracketClose,
 }
 impl SymbolToken {
-    fn get_all() -> [SymbolToken; 6] {
+    fn get_all() -> [SymbolToken; 8] {
         [
             Self::SmallBracketOpen,
             Self::SmallBracketClose,
@@ -107,6 +111,8 @@ impl SymbolToken {
             Self::Equal,
             Self::UnderScore,
             Self::SemiColon,
+            Self::CurlyBracketOpen,
+            Self::CurlyBracketClose,
         ]
     }
     fn value(&self) -> &str {
@@ -117,6 +123,8 @@ impl SymbolToken {
             Self::Equal => "=",
             Self::UnderScore => "_",
             Self::SemiColon => ";",
+            Self::CurlyBracketOpen => "{",
+            Self::CurlyBracketClose => "}",
         }
     }
     fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
