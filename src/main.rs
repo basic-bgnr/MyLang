@@ -590,15 +590,15 @@ impl<'b, 'a> Parser<'b, 'a> {
         self.parse_let_statement()
             .or_else(|e| match e {
                 Error::ParseError(_) => self.parse_assignment_statement(),
-                Error::TypeError(_) => Err(e),
+                Error::TypeError(_) | Error::IdentifierError(_) => Err(e),
             })
             .or_else(|e| match e {
                 Error::ParseError(_) => self.parse_assignment_statement(),
-                Error::TypeError(_) => Err(e),
+                Error::TypeError(_) | Error::IdentifierError(_) => Err(e),
             })
             .or_else(|e| match e {
                 Error::ParseError(_) => self.parse_logical_term(),
-                Error::TypeError(_) => Err(e),
+                Error::TypeError(_) | Error::IdentifierError(_) => Err(e),
             })
             .map(|(statement, _)| statement)
     }
@@ -608,6 +608,7 @@ impl<'b, 'a> Parser<'b, 'a> {
         loop {
             let parsed_statement = self.parse_next_statement()?;
             self.consume_optional_semicolon();
+            self.consume_optional_whitespace();
             statements.push(parsed_statement);
 
             if let Some(Token::EOF(_)) = self.peek() {
@@ -1116,12 +1117,13 @@ impl<'b, 'a> Parser<'b, 'a> {
                 Ok((Either::Bool(false), token_info))
             }
             Some(Token::Identifier(var_name, token_info)) => {
+                // println!("debug in parse_literal {:?}", var_name);
                 self.advance();
                 let var_name = var_name.iter().collect::<String>();
                 match self.get_reference_to_identifier(&var_name) {
                     Some(identifier) => Ok((identifier.clone(), token_info)),
-                    None => Err(Error::ParseError(format!(
-                "Parsing Error: No variable named {:?} found in scope at line {}, column {}",
+                    None => Err(Error::IdentifierError(format!(
+                "Identifier Error: No variable named '{}' found in scope at line {}, column {}",
                 var_name,
                 token_info.line_number,
                 token_info.column_number,
@@ -1269,6 +1271,7 @@ impl Either {
 enum Error {
     ParseError(String),
     TypeError(String),
+    IdentifierError(String),
 }
 
 #[derive(Debug, Clone, Copy)]
