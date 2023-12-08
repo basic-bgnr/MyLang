@@ -3,9 +3,37 @@ use std::{collections::HashMap, format, io::Write, println, unimplemented, unrea
 fn main() {
     test()
 }
+struct Environment<'a> {
+    container: HashMap<String, InternalDataStucture>,
+    parent: Option<&'a Environment<'a>>,
+}
+impl<'a> Environment<'a> {
+    fn new() -> Self {
+        Self {
+            container: HashMap::new(),
+            parent: None,
+        }
+    }
+    fn insert(&mut self, lvalue: String, rvalue: InternalDataStucture) {
+        self.container.insert(lvalue, rvalue);
+    }
+    fn get(&self, name: &str) -> Option<&InternalDataStucture> {
+        self.container.get(name).or_else(|| {
+            self.parent
+                .as_ref()
+                .and_then(|parent_env| parent_env.get(name))
+        })
+    }
+    fn create_child(&self) -> Environment {
+        let mut child = Environment::new();
+        child.parent = Some(&self);
+        child
+    }
+}
 
 fn test() {
-    let mut environment = HashMap::new();
+    // let mut environment = HashMap::new();
+    let mut environment = Environment::new();
     let mut prev_identifiers: Option<Vec<Either>> = None;
 
     'loop_start: loop {
@@ -66,7 +94,7 @@ fn tokenize_and_parse(
             parser.add_reference_to_previous_identifiers(previous_identifiers);
 
             let parsed_result = parser.parse()?;
-            Ok((parser.identifiers_list, parsed_result))
+            Ok((parser.get_identifiers_list(), parsed_result))
         }
         Err(err) => Err(Error::ParseError(
             err.into_iter()
@@ -1187,10 +1215,7 @@ impl Either {
             Self::BlockStatement(_, tipe) => tipe,
         }
     }
-    fn calculate(
-        &self,
-        environment: &mut HashMap<String, InternalDataStucture>,
-    ) -> InternalDataStucture {
+    fn calculate<'a>(&self, environment: &mut Environment<'a>) -> InternalDataStucture {
         match self {
             Self::Number(val) => InternalDataStucture::Number(*val),
 
@@ -1227,8 +1252,9 @@ impl Either {
 
             Self::BlockStatement(statements, tipe) => {
                 let mut result = InternalDataStucture::Void;
+                let mut child_environment = environment.create_child();
                 for statement in statements {
-                    result = statement.calculate(environment);
+                    result = statement.calculate(&mut child_environment);
                 }
                 match tipe {
                     LanguageType::Void => InternalDataStucture::Void,
