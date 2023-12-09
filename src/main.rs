@@ -142,6 +142,7 @@ enum Token<'a> {
     Keyword(KeywordToken, TokenInfo),
 
     WhiteSpace(TokenInfo),
+    NewLine(TokenInfo),
 
     EOF(TokenInfo),
 
@@ -159,6 +160,7 @@ impl<'a> Token<'a> {
             Self::EOF(token_info) => token_info,
 
             Self::WhiteSpace(token_info) => token_info,
+            Self::NewLine(token_info) => token_info,
             Self::Alphanumeric(_) => unreachable!(),
         }
     }
@@ -171,10 +173,20 @@ impl<'a> Token<'a> {
             Self::Symbol(s, _) => s.value().to_string(),
             Self::Keyword(k, _) => k.value().to_string(),
 
-            Self::WhiteSpace(_) => "".to_string(),
+            Self::WhiteSpace(_) => Token::value_of_white_space().to_string(),
+            Self::NewLine(_) => Token::value_of_new_line().to_string(),
             Self::Alphanumeric(lst_chr) => lst_chr.iter().collect(),
-            Self::EOF(_) => "<EOF>".to_string(),
+            Self::EOF(_) => Token::value_of_eof().to_string(),
         }
+    }
+    fn value_of_white_space() -> &'static str {
+        " "
+    }
+    fn value_of_new_line() ->  &'static str{
+        "\n"
+    }
+    fn value_of_eof() ->  &'static str{
+        "<EOF>"
     }
 }
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -211,6 +223,11 @@ impl<'a> Tokenizer<'a> {
         self.index += 1;
         self.column_number += 1;
     }
+    fn break_lines(&mut self, lines: usize) {
+        self.line_number += lines;
+        self.reset_column();
+
+    }
 
     fn peek(&self) -> Option<&char> {
         if self.index < self.len {
@@ -224,6 +241,9 @@ impl<'a> Tokenizer<'a> {
         let index_diff = self.index - new_index;
         self.index = new_index;
         self.column_number -= index_diff;
+    }
+    fn reset_column(&mut self){
+        self.column_number = 1;
     }
 
     fn get_alphanumeric_token(&self, start_index: usize, end_index: usize) -> Option<Token<'a>> {
@@ -301,8 +321,20 @@ impl<'a> Tokenizer<'a> {
     }
     fn match_whitespace(&mut self) -> Option<Token<'a>> {
         let token_info = self.get_token_info();
-        match self.match_many_in_blob(" ") {
+        match self.match_many_in_blob(&Token::value_of_white_space()) {
             Some(_) => Some(Token::WhiteSpace(token_info)),
+            _ => None,
+        }
+    }
+   fn match_new_lines(&mut self) -> Option<Token<'a>> {
+        let token_info = self.get_token_info();
+        match self.match_many_in_blob(&Token::value_of_new_line()) {
+            Some(new_lines) => {
+                let no_of_new_lines = new_lines.value().len();
+                self.break_lines(no_of_new_lines);
+
+                Some(Token::NewLine(token_info))
+            }
             _ => None,
         }
     }
@@ -380,6 +412,10 @@ impl<'a> Tokenizer<'a> {
             }
             if let Some(token) = self.match_whitespace() {
                 tokens.push(token);
+                continue;
+            }
+            if let Some(token) = self.match_new_lines() {
+                // tokens.push(token);
                 continue;
             }
             let token_info = self.get_token_info();
@@ -585,23 +621,31 @@ impl<'b, 'a> Parser<'b, 'a> {
             Some(Token::Keyword(keyword, token_info_while)) if keyword == KeywordToken::While => {
                 self.advance();
                 self.consume_optional_whitespace();
-                let (condition_expression, _) = self.parse_logical_term()?;
-                self.consume_optional_whitespace();
-                let (block_expression, _) = self.parse_logical_term()?;
-                let tipe = block_expression.tipe().clone();
-                Ok((
-                    Either::WhileStatement(
-                        Box::new(condition_expression),
-                        Box::new(block_expression),
-                        tipe,
-                    ),
-                    token_info_while,
-                ))
+                let (condition_expression, token_info) = self.parse_logical_term()?;
+                if condition_expression.tipe() == &LanguageType::Boolean {
+                    self.consume_optional_whitespace();
+                    let (block_expression, _) = self.parse_logical_term()?;
+                    let tipe = block_expression.tipe().clone();
+                    Ok((
+                        Either::WhileStatement(
+                            Box::new(condition_expression),
+                            Box::new(block_expression),
+                            tipe,
+                        ),
+                        token_info_while,
+                    ))
+                }else{
+                        Err(Error::ParseError(format!(
+                    "Type Error: Cannot parse while statement found at line {}, column {}",
+                    token_info.line_number,
+                    token_info.column_number
+                )))
+                }
             }
             Some(token) => Err(Error::ParseError(format!(
                 "Parsing Error: Cannot parse while statement found at line {}, column {}",
                 token.get_token_info().line_number,
-                token.get_token_info().column_number
+                token.get_token_info().column_number,
             ))),
             _ => unreachable!(),
         }
@@ -721,7 +765,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                         }
                     }
                     None => Err(Error::IdentifierError(format!(
-                        "Identifier Error: use of undeclared variable {:?} encountered at line {}, {}",
+                        "Identifier Error: use of undeclared variable '{}' encountered at line {}, {}",
                         identifier_token.value(),
                         token_info.line_number,
                         token_info.column_number
