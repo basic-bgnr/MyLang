@@ -45,19 +45,19 @@ enum SymbolToken {
     SmallBracketClose,
     Dot,
     Equal,
-    UnderScore,
+    // UnderScore,
     SemiColon,
     CurlyBracketOpen,
     CurlyBracketClose,
 }
 impl SymbolToken {
-    fn get_all() -> [SymbolToken; 8] {
+    fn get_all() -> [SymbolToken; 7] {
         [
             Self::SmallBracketOpen,
             Self::SmallBracketClose,
             Self::Dot,
             Self::Equal,
-            Self::UnderScore,
+            // Self::UnderScore,
             Self::SemiColon,
             Self::CurlyBracketOpen,
             Self::CurlyBracketClose,
@@ -69,7 +69,7 @@ impl SymbolToken {
             Self::SmallBracketClose => ")",
             Self::Dot => ".",
             Self::Equal => "=",
-            Self::UnderScore => "_",
+            // Self::UnderScore => "_",
             Self::SemiColon => ";",
             Self::CurlyBracketOpen => "{",
             Self::CurlyBracketClose => "}",
