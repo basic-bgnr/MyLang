@@ -403,6 +403,7 @@ impl<'a> Tokenizer<'a> {
 struct Parser<'b, 'a: 'b> {
     tokens: &'a [Token<'a>],
     index: usize,
+    back_track_index: usize,
     len: usize,
     // program: Vec<Either>,
     block_position: usize,
@@ -417,6 +418,7 @@ impl<'b, 'a> Parser<'b, 'a> {
         Parser {
             tokens: tokens,
             index: 0,
+            back_track_index: 0, 
             len: tokens.len(),
             // program: Vec::new(),
             block_position: 0,
@@ -454,6 +456,15 @@ impl<'b, 'a> Parser<'b, 'a> {
     ) {
         self.previous_identifiers = previous_identifiers;
     }
+
+    fn remember_index(&mut self) {
+        self.back_track_index = self.index;
+    }
+
+    fn back_track(&mut self){
+        self.index = self.back_track_index;
+    }
+
     fn reset_index_at(&mut self, index: usize) {
         self.index = index;
     }
@@ -504,17 +515,18 @@ impl<'b, 'a> Parser<'b, 'a> {
         self.parse_while_statement()
             .or_else(|e| match e {
                 Error::ParseError(_) => self.parse_let_statement(),
-                Error::TypeError(_) | Error::IdentifierError(_) => Err(e),
+                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
             })
             .or_else(|e| match e {
                 Error::ParseError(_) => self.parse_assignment_statement(),
-                Error::TypeError(_) | Error::IdentifierError(_) => Err(e),
+                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
             })
             .or_else(|e| match e {
                 Error::ParseError(_) => self.parse_logical_term(),
-                Error::TypeError(_) | Error::IdentifierError(_) => Err(e),
-            })
-            .map(|(statement, _)| statement)
+                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+            }).or_else(|e| match e {
+                e @ (Error::ParseError(_) | Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_)) => Err(e),
+            }).map(|(statement, _)| statement)
     }
 
     fn parse(&mut self) -> Result<Vec<Either>, Error> {
@@ -566,6 +578,7 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
         false
     }
+
     fn parse_while_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
         self.consume_optional_whitespace();
         match self.peek().cloned() {
@@ -590,7 +603,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                 token.get_token_info().line_number,
                 token.get_token_info().column_number
             ))),
-            None => todo!(),
+            _ => unreachable!(),
         }
     }
 
@@ -634,24 +647,24 @@ impl<'b, 'a> Parser<'b, 'a> {
                                     }
                                 }
                             }
-                            Some(token) => Err(Error::ParseError(format!(
-                                "Parsing Error: No equal found at line {}, column {}",
+                            Some(token) => Err(Error::SyntaxError(format!(
+                                "Syntax Error: No equal found at line {}, column {}",
                                 token.get_token_info().line_number,
                                 token.get_token_info().column_number
                             ))),
-                            None => Err(Error::ParseError(format!(
+                            None => Err(Error::SyntaxError(format!(
                                 "Parsing Error: None value encountered at line {}, {}",
                                 token_info.line_number, token_info.column_number
                             ))),
                         }
                     }
-                    Some(token) => Err(Error::ParseError(format!(
-                        "Parsing Error: No identifier found at line {}, column {}",
+                    Some(token) => Err(Error::SyntaxError(format!(
+                        "Syntax Error: No identifier found at line {}, column {}",
                         token.get_token_info().line_number,
                         token.get_token_info().column_number
                     ))),
-                    None => Err(Error::TypeError(format!(
-                        "Type Error: None value found at line {}, column {}",
+                    None => Err(Error::SyntaxError(format!(
+                        "Syntax Error: None value found at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     ))),
                 }
@@ -661,14 +674,12 @@ impl<'b, 'a> Parser<'b, 'a> {
                 token.get_token_info().line_number,
                 token.get_token_info().column_number
             ))),
-            None => Err(Error::TypeError(format!(
-                "Type Error: None value encountered "
-            ))),
+            _ => unreachable!(),
         }
     }
     fn parse_assignment_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
         self.consume_optional_whitespace();
-        let index = self.index;
+        self.remember_index();
         match self.peek().cloned() {
             Some(identifier_token @ Token::Identifier(_, token_info)) => {
                 match self.get_reference_to_identifier(&identifier_token.value()) {
@@ -688,43 +699,41 @@ impl<'b, 'a> Parser<'b, 'a> {
                                         token_info,
                                     ))
                                 } else {
-                                    self.reset_index_at(index);
                                     Err(Error::TypeError(format!(
                                         "Type Error: Type mismatched, found at line {}, column {}",
                                         token_info.line_number, token_info.column_number
                                     )))
                                 }
                             }
-                            Some(token) => {
-                                self.reset_index_at(index);
+                            Some(other_token) => {
+                                self.back_track();
                                 Err(Error::ParseError(format!(
-                                    "Parsing Error: No equal found at line {}, column {}",
-                                    token.get_token_info().line_number,
-                                    token.get_token_info().column_number
-                                )))
+                                "Parsing Error: Cannot parse assignment statement found at line {}, column {}",
+                                other_token.get_token_info().line_number,
+                                other_token.get_token_info().column_number
+                            ))) 
                             }
-                            None => Err(Error::TypeError(format!(
-                                "Type Error: None value encountered at line {}, {}",
-                                token_info.line_number, token_info.column_number
+                            None => Err(Error::ParseError(format!(
+                                "Parsing Error: Cannot parse assignment statement found at line {}, column {}",
+                                token_info.line_number,
+                                token_info.column_number
                             ))),
                         }
                     }
-                    None => Err(Error::ParseError(format!(
-                        "Parsing Error: use of undeclared variable {:?} encountered at line {}, {}",
+                    None => Err(Error::IdentifierError(format!(
+                        "Identifier Error: use of undeclared variable {:?} encountered at line {}, {}",
                         identifier_token.value(),
                         token_info.line_number,
                         token_info.column_number
                     ))),
                 }
             }
-            Some(token) => Err(Error::ParseError(format!(
+            Some(other_token) => Err(Error::ParseError(format!(
                 "Parsing Error: Cannot parse assignment statement at line {}, column {}",
-                token.get_token_info().line_number,
-                token.get_token_info().column_number
+                other_token.get_token_info().line_number,
+                other_token.get_token_info().column_number
             ))),
-            None => Err(Error::TypeError(format!(
-                "Type Error: None value encountered "
-            ))),
+            _ => unreachable!(),
         }
     }
 
@@ -1020,8 +1029,8 @@ impl<'b, 'a> Parser<'b, 'a> {
                         Some(Token::Symbol(SymbolToken::Dot, token_info_symbol))
                             if num_of_dot >= 1 =>
                         {
-                            return Err(Error::ParseError(format!(
-                "Parsing Error: Decimal(.) parsing error encountered at line {}, column {}",
+                            return Err(Error::SyntaxError(format!(
+                "Syntax Error: Extra decimal(.) encountered at line {}, column {}",
                 token_info_symbol.line_number,
                 token_info_symbol.column_number ,
             )));
@@ -1099,9 +1108,6 @@ impl<'b, 'a> Parser<'b, 'a> {
                                 }
                             }
                         }
-                        Some(Token::EOF(_)) => {
-                            return Err(Error::TypeError(format!("EOF encountered")));
-                        }
                         Some(_) =>  {
                             let statement = self.parse_next_statement()?;
                             last_statement_semicolon = self.consume_optional_semicolon();
@@ -1116,13 +1122,13 @@ impl<'b, 'a> Parser<'b, 'a> {
                 }
             }
 
-            Some(token) => Err(Error::ParseError(format!(
-                "Parsing Error: Value other than literal (Number, Boolean...) '{}' encountered at line {}, column {}",
+            Some(token) => Err(Error::SyntaxError(format!(
+                "Syntax Error: Value other than literal (Number, Boolean...) '{}' encountered at line {}, column {}",
                 token.value(),
                 token.get_token_info().line_number,
                 token.get_token_info().column_number,
             ))),
-            None => Err(Error::TypeError(format!("Type Error: None value encountered"))),
+            None => unreachable!(), 
         }
     }
 }
@@ -1175,6 +1181,7 @@ enum Error {
     ParseError(String),
     TypeError(String),
     IdentifierError(String),
+    SyntaxError(String),
 }
 
 #[derive(Debug)]
