@@ -1,7 +1,23 @@
 use std::{collections::HashMap, format, io::Write, println, unimplemented, unreachable, vec};
 
 fn main() {
-    Interpreter::new().interactive_prompt();
+    let prompt = "
+    let a = 1
+    let b = 1
+    let counter = 1
+    while {counter < 10} {
+                            let c = a + b
+                            a = b
+                            b = c
+                            counter = counter + 1
+                         }
+    counter a b
+    ";
+    println!("Fibonacci Calculator:\n{}", prompt);
+    let mut interpreter = Interpreter::new();
+
+    interpreter.interpret(prompt);
+    interpreter.interactive_prompt();
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
