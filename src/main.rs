@@ -556,50 +556,6 @@ impl<'b, 'a> Parser<'b, 'a> {
         self.match_identifier_in_list(name, self.identifiers_list.as_deref())
             .or_else(|| self.match_identifier_in_list(name, self.previous_identifiers))
     }
-
-    fn parse_next_statement(&mut self) -> Result<Either, Error> {
-        self.parse_if_else_statement()
-            .or_else(|e| match e {
-                Error::ParseError(_) => self.parse_while_statement(),
-                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
-            })
-            .or_else(|e| match e {
-                Error::ParseError(_) => self.parse_let_statement(),
-                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
-            })
-            .or_else(|e| match e {
-                Error::ParseError(_) => self.parse_assignment_statement(),
-                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
-            })
-            .or_else(|e| match e {
-                Error::ParseError(_) => self.parse_logical_term(),
-                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
-            })
-            .or_else(|e| match e {
-                e @ (Error::ParseError(_)
-                | Error::TypeError(_)
-                | Error::IdentifierError(_)
-                | Error::SyntaxError(_)) => Err(e),
-            })
-            .map(|(statement, _)| statement)
-    }
-
-    fn parse(&mut self) -> Result<Vec<Either>, Error> {
-        let mut statements = Vec::new();
-        loop {
-            let parsed_statement = self.parse_next_statement()?;
-            self.consume_optional_semicolon();
-            self.consume_optional_whitespace();
-            statements.push(parsed_statement);
-
-            if let Some(Token::EOF(_)) = self.peek() {
-                break;
-            }
-        }
-        // println!("{:?}", statements);
-        Ok(statements)
-    }
-
     fn advance(&mut self) -> Option<&Token> {
         if self.index < self.len {
             let return_value = &self.tokens[self.index];
@@ -633,62 +589,45 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
         false
     }
-    fn parse_if_else_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
-        self.consume_optional_whitespace();
-        match self.peek().cloned() {
-            Some(Token::Keyword(keyword, token_info_if)) if keyword == KeywordToken::If => {
-                self.advance();
-                self.consume_optional_whitespace();
-                let (condition_expression, token_info) = self.parse_logical_term()?;
-                if condition_expression.tipe() == &LanguageType::Boolean {
-                    self.consume_optional_whitespace();
-                    let (if_block_expression, _) = self.parse_logical_term()?;
-                    let if_block_tipe = if_block_expression.tipe().clone();
 
-                    self.consume_optional_whitespace();
+    fn parse(&mut self) -> Result<Vec<Either>, Error> {
+        let mut statements = Vec::new();
+        loop {
+            let parsed_statement = self.parse_next_statement()?;
+            self.consume_optional_semicolon();
+            self.consume_optional_whitespace();
+            statements.push(parsed_statement);
 
-                    match self.peek().cloned(){
-                        Some(Token::Keyword(keyword, token_info_while)) if keyword == KeywordToken::Else => {
-                            self.advance();
-                            self.consume_optional_whitespace();
-
-                            let (else_block_expression, token_info) = self.parse_logical_term()?;
-                            let else_block_tipe = else_block_expression.tipe();
-
-                            if if_block_tipe == *else_block_tipe {
-                                Ok((Either::IfElseStatement(Box::new(condition_expression), Box::new(if_block_expression), Box::new(else_block_expression), if_block_tipe), token_info_if))
-                            }else{
-
-                                    Err(Error::TypeError(format!( "Type Error: type mismatched of if and else block found at line {}, column {}",
-                                token_info.line_number,
-                                token_info.column_number
-                            )))
-                            }
-                    }
-                    Some(other_token) =>
-                                    Err(Error::SyntaxError(format!( "Syntax Error: Cannot parse matching else block at line {}, column {}, found {} instead",
-                                other_token.get_token_info().line_number,
-                                other_token.get_token_info().column_number,
-                                other_token.value(),
-                            ))),
-                                    _ => unreachable!(),
-                }
-                } else {
-                    Err(Error::TypeError(format!(
-                        "Type Error: Type mismatched found at line {}, column {}",
-                        token_info.line_number, token_info.column_number
-                    )))
-                }
+            if let Some(Token::EOF(_)) = self.peek() {
+                break;
             }
-            Some(token) => Err(Error::ParseError(format!(
-                "Parsing Error: Cannot parse ifelse statement found at line {}, column {}",
-                token.get_token_info().line_number,
-                token.get_token_info().column_number,
-            ))),
-            _ => unreachable!(),
         }
+        // println!("{:?}", statements);
+        Ok(statements)
     }
 
+    fn parse_next_statement(&mut self) -> Result<Either, Error> {
+        self.parse_while_statement()
+            .or_else(|e| match e {
+                Error::ParseError(_) => self.parse_let_statement(),
+                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+            })
+            .or_else(|e| match e {
+                Error::ParseError(_) => self.parse_assignment_statement(),
+                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+            })
+            .or_else(|e| match e {
+                Error::ParseError(_) => self.parse_expression(),
+                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+            })
+            .or_else(|e| match e {
+                e @ (Error::ParseError(_)
+                | Error::TypeError(_)
+                | Error::IdentifierError(_)
+                | Error::SyntaxError(_)) => Err(e),
+            })
+            .map(|(statement, _)| statement)
+    }
     fn parse_while_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
         self.consume_optional_whitespace();
         match self.peek().cloned() {
@@ -704,7 +643,6 @@ impl<'b, 'a> Parser<'b, 'a> {
                         Either::WhileStatement(
                             Box::new(condition_expression),
                             Box::new(block_expression),
-                            tipe,
                         ),
                         token_info_while,
                     ))
@@ -742,7 +680,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                             {
                                 self.advance();
                                 self.consume_optional_whitespace();
-                                let (term, token_info) = self.parse_logical_term()?;
+                                let (term, token_info) = self.parse_expression()?;
 
                                 let tipe = term.tipe();
 
@@ -809,7 +747,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                             {
                                 self.advance();
                                 self.consume_optional_whitespace();
-                                let (term, token_info) = self.parse_logical_term()?;
+                                let (term, token_info) = self.parse_expression()?;
                                 if term.tipe() == identifier.tipe() {
                                     Ok((
                                         AssignmentStatement::new(identifier_token.value(), term),
@@ -854,9 +792,79 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
     }
 
+    fn parse_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
+        self.parse_if_else_expression()
+            .or_else(|e| match e {
+                Error::ParseError(_) => self.parse_logical_term(),
+                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+            })
+            .or_else(|e| match e {
+                e @ (Error::ParseError(_)
+                | Error::TypeError(_)
+                | Error::IdentifierError(_)
+                | Error::SyntaxError(_)) => Err(e),
+            })
+    }
+
+    fn parse_if_else_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
+        self.consume_optional_whitespace();
+        match self.peek().cloned() {
+            Some(Token::Keyword(keyword, token_info_if)) if keyword == KeywordToken::If => {
+                self.advance();
+                self.consume_optional_whitespace();
+                let (condition_expression, token_info) = self.parse_logical_term()?;
+                if condition_expression.tipe() == &LanguageType::Boolean {
+                    self.consume_optional_whitespace();
+                    let (if_block_expression, _) = self.parse_logical_term()?;
+                    let if_block_tipe = if_block_expression.tipe().clone();
+
+                    self.consume_optional_whitespace();
+
+                    match self.peek().cloned(){
+                        Some(Token::Keyword(keyword, token_info_while)) if keyword == KeywordToken::Else => {
+                            self.advance();
+                            self.consume_optional_whitespace();
+
+                            let (else_block_expression, token_info) = self.parse_logical_term()?;
+                            let else_block_tipe = else_block_expression.tipe();
+
+                            if if_block_tipe == *else_block_tipe {
+                                Ok((Either::IfElseStatement(Box::new(condition_expression), Box::new(if_block_expression), Box::new(else_block_expression), if_block_tipe), token_info_if))
+                            }else{
+
+                                    Err(Error::TypeError(format!( "Type Error: type mismatched of if and else block found at line {}, column {}",
+                                token_info.line_number,
+                                token_info.column_number
+                            )))
+                            }
+                    }
+                    Some(other_token) =>
+                                    Err(Error::SyntaxError(format!( "Syntax Error: Cannot parse matching else block at line {}, column {}, found {} instead",
+                                other_token.get_token_info().line_number,
+                                other_token.get_token_info().column_number,
+                                other_token.value(),
+                            ))),
+                                    _ => unreachable!(),
+                }
+                } else {
+                    Err(Error::TypeError(format!(
+                        "Type Error: Type mismatched found at line {}, column {}",
+                        token_info.line_number, token_info.column_number
+                    )))
+                }
+            }
+            Some(token) => Err(Error::ParseError(format!(
+                "Parsing Error: Cannot parse ifelse statement found at line {}, column {}",
+                token.get_token_info().line_number,
+                token.get_token_info().column_number,
+            ))),
+            _ => unreachable!(),
+        }
+    }
+
     fn parse_logical_term(&mut self) -> Result<(Either, TokenInfo), Error> {
+        self.consume_optional_whitespace();
         let (mut first_expression, token_info) = self.parse_comparison_term()?;
-        // self.consume_optional_whitespace();
         loop {
             match self.peek().cloned() {
                 Some(Token::Operator(
@@ -967,7 +975,6 @@ impl<'b, 'a> Parser<'b, 'a> {
 
     fn parse_term(&mut self) -> Result<(Either, TokenInfo), Error> {
         let (mut first_expression, token_info) = self.parse_prod()?;
-
         loop {
             match self.peek().cloned() {
                 Some(Token::Operator(
@@ -1013,7 +1020,6 @@ impl<'b, 'a> Parser<'b, 'a> {
 
     fn parse_prod(&mut self) -> Result<(Either, TokenInfo), Error> {
         let (mut first_expression, token_info) = self.parse_unary()?;
-
         loop {
             match self.peek().cloned() {
                 Some(Token::Operator(
@@ -1123,13 +1129,86 @@ impl<'b, 'a> Parser<'b, 'a> {
                     ))),
                 }
             }
-            _ => self.parse_literal(),
+            _ => self.parse_block_expression(),
         }
     }
 
-    fn parse_literal(&mut self) -> Result<(Either, TokenInfo), Error> {
-        self.consume_optional_whitespace();
-        // println!("debug parse_literal {:?}", self.peek().cloned());
+    fn parse_block_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
+        match self.peek().cloned() {
+            Some(Token::Symbol(SymbolToken::CurlyBracketOpen, token_info)) => {
+                // println!("debug curly: {:?}", "here");
+                self.increment_block_position();
+
+                self.advance();
+                self.consume_optional_whitespace();
+                let mut statements: Vec<Either> = Vec::new();
+                let mut last_statement_semicolon = false;
+                loop {
+                    match self.peek().cloned() {
+                        Some(Token::Symbol(SymbolToken::CurlyBracketClose, _)) => {
+                            self.decrement_block_position();
+
+                            self.advance();
+                            self.consume_optional_semicolon();
+                            match statements.last() {
+                                Some(last_statement) if !last_statement_semicolon => {
+                                    let tipe = last_statement.tipe().clone();
+                                    return Ok((
+                                        Either::BlockStatement(statements, tipe),
+                                        token_info,
+                                    ));
+                                }
+                                Some(_) => {
+                                    return Ok((
+                                        Either::BlockStatement(statements, LanguageType::Void),
+                                        token_info,
+                                    ));
+                                }
+                                None => {
+                                    return Ok((
+                                        Either::BlockStatement(statements, LanguageType::Void),
+                                        token_info,
+                                    ));
+                                }
+                            }
+                        }
+                        Some(_) => {
+                            let statement = self.parse_next_statement()?;
+                            last_statement_semicolon = self.consume_optional_semicolon();
+                            self.consume_optional_whitespace();
+                            // println!("debug curly: {:?} {:?}", statement, self.peek());
+                            statements.push(statement);
+                        }
+                        None => {
+                            return Err(Error::TypeError(format!("None encountered")));
+                        }
+                    }
+                }
+            }
+            _ => self.parse_identifier_expression(),
+        }
+    }
+
+    fn parse_identifier_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
+        match self.peek().cloned() {
+            Some(Token::Identifier(var_name, token_info)) => {
+                // println!("debug in parse_literal {:?}", var_name);
+                self.advance();
+                let var_name = var_name.iter().collect::<String>();
+                match self.get_reference_to_identifier(&var_name) {
+                    Some(identifier) => Ok((identifier.clone(), token_info)),
+                    None => Err(Error::IdentifierError(format!(
+                "Identifier Error: No variable named '{}' found in scope at line {}, column {}",
+                var_name,
+                token_info.line_number,
+                token_info.column_number,
+            ))),
+                }
+            }
+            _ => self.parse_number_literal(),
+        }
+    }
+    fn parse_number_literal(&mut self) -> Result<(Either, TokenInfo), Error> {
         match self.peek().cloned() {
             Some(Token::Digit(first_digit, digit_token)) => {
                 let mut digits = vec![first_digit];
@@ -1147,10 +1226,9 @@ impl<'b, 'a> Parser<'b, 'a> {
                             if num_of_dot >= 1 =>
                         {
                             return Err(Error::SyntaxError(format!(
-                "Syntax Error: Extra decimal(.) encountered at line {}, column {}",
-                token_info_symbol.line_number,
-                token_info_symbol.column_number ,
-            )));
+                                "Syntax Error: Extra decimal(.) encountered at line {}, column {}",
+                                token_info_symbol.line_number, token_info_symbol.column_number,
+                            )));
                         }
                         Some(Token::Digit(val, digit_token)) => {
                             self.advance();
@@ -1174,6 +1252,12 @@ impl<'b, 'a> Parser<'b, 'a> {
                     digit_token,
                 ))
             }
+            _ => self.parse_literal(),
+        }
+    }
+
+    fn parse_literal(&mut self) -> Result<(Either, TokenInfo), Error> {
+        match self.peek().cloned() {
             Some(Token::Keyword(KeywordToken::True, token_info)) => {
                 self.advance();
                 Ok((Either::Bool(true), token_info))
@@ -1182,63 +1266,6 @@ impl<'b, 'a> Parser<'b, 'a> {
                 self.advance();
                 Ok((Either::Bool(false), token_info))
             }
-            Some(Token::Identifier(var_name, token_info)) => {
-                // println!("debug in parse_literal {:?}", var_name);
-                self.advance();
-                let var_name = var_name.iter().collect::<String>();
-                match self.get_reference_to_identifier(&var_name) {
-                    Some(identifier) => Ok((identifier.clone(), token_info)),
-                    None => Err(Error::IdentifierError(format!(
-                "Identifier Error: No variable named '{}' found in scope at line {}, column {}",
-                var_name,
-                token_info.line_number,
-                token_info.column_number,
-            ))),
-                }
-
-            }
-            Some(Token::Symbol(SymbolToken::CurlyBracketOpen, token_info)) => {
-                // println!("debug curly: {:?}", "here");
-                self.increment_block_position();
-
-                self.advance();
-                self.consume_optional_whitespace();
-                let mut statements:Vec<Either> = Vec::new();
-                let mut last_statement_semicolon = false;
-                loop {
-                    match self.peek().cloned(){
-                        Some(Token::Symbol(SymbolToken::CurlyBracketClose, _)) => {
-                            self.decrement_block_position();
-
-                            self.advance();
-                            self.consume_optional_semicolon();
-                            match statements.last() {
-                                Some(last_statement) if !last_statement_semicolon => {
-                                    let tipe = last_statement.tipe().clone();
-                                    return Ok( (Either::BlockStatement(statements, tipe), token_info ) );
-                                }
-                                Some(_) => {
-                                    return Ok( (Either::BlockStatement(statements, LanguageType::Void), token_info) );
-                                }
-                                None => {
-                                    return Ok( (Either::BlockStatement(statements, LanguageType::Void), token_info) );
-                                }
-                            }
-                        }
-                        Some(_) =>  {
-                            let statement = self.parse_next_statement()?;
-                            last_statement_semicolon = self.consume_optional_semicolon();
-                            self.consume_optional_whitespace();
-                            // println!("debug curly: {:?} {:?}", statement, self.peek());
-                            statements.push(statement);
-                        }
-                        None => {
-                            return Err(Error::TypeError(format!("None encountered")));
-                        }
-                    }
-                }
-            }
-
             Some(token) => Err(Error::SyntaxError(format!(
                 "Syntax Error: Value other than literal (Number, Boolean...) '{}' encountered at line {}, column {}",
                 token.value(),
@@ -1257,16 +1284,17 @@ enum LanguageType {
 }
 #[derive(Debug)]
 enum Either {
-    Number(f64),
-    BinaryExpression(Box<BinaryExpression>),
-    UnaryExpression(Box<UnaryExpression>),
+    WhileStatement(Box<Either>, Box<Either>),
     LetStatement(Box<LetStatement>),
     AssignmentStatement(Box<AssignmentStatement>),
-    Bool(bool),
-    Identifier(String, LanguageType),
-    BlockStatement(Vec<Either>, LanguageType),
-    WhileStatement(Box<Either>, Box<Either>, LanguageType),
+
     IfElseStatement(Box<Either>, Box<Either>, Box<Either>, LanguageType),
+    BinaryExpression(Box<BinaryExpression>),
+    UnaryExpression(Box<UnaryExpression>),
+    BlockStatement(Vec<Either>, LanguageType),
+    Identifier(String, LanguageType),
+    Number(f64),
+    Bool(bool),
 }
 
 impl Either {
@@ -1289,7 +1317,7 @@ impl Either {
             }
             Self::Identifier(_, tipe) => tipe,
             Self::BlockStatement(_, tipe) => tipe,
-            Self::WhileStatement(_, _, tipe) => tipe,
+            Self::WhileStatement(_, _) => &LanguageType::Void,
             Self::IfElseStatement(_, _, _, tipe) => tipe,
         }
     }
@@ -1352,7 +1380,8 @@ impl AssignmentStatement {
         }))
     }
     fn tipe(&self) -> &LanguageType {
-        self.rvalue.tipe()
+        // self.rvalue.tipe()
+        &LanguageType::Void
     }
 }
 #[derive(Debug)]
@@ -1369,7 +1398,8 @@ impl LetStatement {
         }))
     }
     fn tipe(&self) -> &LanguageType {
-        self.rvalue.tipe()
+        // self.rvalue.tipe()
+        &LanguageType::Void
     }
 }
 ///////////////////////////////////////////////////////// Interpreter Code /////////////////////////////////////////////////
@@ -1579,7 +1609,7 @@ impl Interpreter {
                 }
             }
 
-            Either::WhileStatement(condition, block_statement, _) => {
+            Either::WhileStatement(condition, block_statement) => {
                 let mut result = InternalDataStucture::Void;
                 loop {
                     match self.calculate_statement(condition) {
