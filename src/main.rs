@@ -15,7 +15,14 @@ enum KeywordToken {
 }
 impl KeywordToken {
     fn get_all() -> [KeywordToken; 6] {
-        [Self::Let, Self::True, Self::False, Self::While, Self::If, Self::Else]
+        [
+            Self::Let,
+            Self::True,
+            Self::False,
+            Self::While,
+            Self::If,
+            Self::Else,
+        ]
     }
     fn value(&self) -> &str {
         match self {
@@ -24,7 +31,7 @@ impl KeywordToken {
             Self::False => "false",
             Self::While => "while",
             Self::If => "if",
-            Self::Else=> "else",
+            Self::Else => "else",
         }
     }
     fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
@@ -186,10 +193,10 @@ impl<'a> Token<'a> {
     fn value_of_white_space() -> &'static str {
         " "
     }
-    fn value_of_new_line() ->  &'static str{
+    fn value_of_new_line() -> &'static str {
         "\n"
     }
-    fn value_of_eof() ->  &'static str{
+    fn value_of_eof() -> &'static str {
         "<EOF>"
     }
 }
@@ -230,7 +237,6 @@ impl<'a> Tokenizer<'a> {
     fn break_lines(&mut self, lines: usize) {
         self.line_number += lines;
         self.reset_column();
-
     }
 
     fn peek(&self) -> Option<&char> {
@@ -246,7 +252,7 @@ impl<'a> Tokenizer<'a> {
         self.index = new_index;
         self.column_number -= index_diff;
     }
-    fn reset_column(&mut self){
+    fn reset_column(&mut self) {
         self.column_number = 1;
     }
 
@@ -330,7 +336,7 @@ impl<'a> Tokenizer<'a> {
             _ => None,
         }
     }
-   fn match_new_lines(&mut self) -> Option<Token<'a>> {
+    fn match_new_lines(&mut self) -> Option<Token<'a>> {
         let token_info = self.get_token_info();
         match self.match_many_in_blob(&Token::value_of_new_line()) {
             Some(new_lines) => {
@@ -458,7 +464,7 @@ impl<'b, 'a> Parser<'b, 'a> {
         Parser {
             tokens: tokens,
             index: 0,
-            back_track_index: 0, 
+            back_track_index: 0,
             len: tokens.len(),
             // program: Vec::new(),
             block_position: 0,
@@ -501,7 +507,7 @@ impl<'b, 'a> Parser<'b, 'a> {
         self.back_track_index = self.index;
     }
 
-    fn back_track(&mut self){
+    fn back_track(&mut self) {
         self.index = self.back_track_index;
     }
 
@@ -552,7 +558,11 @@ impl<'b, 'a> Parser<'b, 'a> {
     }
 
     fn parse_next_statement(&mut self) -> Result<Either, Error> {
-        self.parse_while_statement()
+        self.parse_if_else_statement()
+            .or_else(|e| match e {
+                Error::ParseError(_) => self.parse_while_statement(),
+                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+            })
             .or_else(|e| match e {
                 Error::ParseError(_) => self.parse_let_statement(),
                 Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
@@ -564,9 +574,14 @@ impl<'b, 'a> Parser<'b, 'a> {
             .or_else(|e| match e {
                 Error::ParseError(_) => self.parse_logical_term(),
                 Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
-            }).or_else(|e| match e {
-                e @ (Error::ParseError(_) | Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_)) => Err(e),
-            }).map(|(statement, _)| statement)
+            })
+            .or_else(|e| match e {
+                e @ (Error::ParseError(_)
+                | Error::TypeError(_)
+                | Error::IdentifierError(_)
+                | Error::SyntaxError(_)) => Err(e),
+            })
+            .map(|(statement, _)| statement)
     }
 
     fn parse(&mut self) -> Result<Vec<Either>, Error> {
@@ -618,6 +633,61 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
         false
     }
+    fn parse_if_else_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
+        self.consume_optional_whitespace();
+        match self.peek().cloned() {
+            Some(Token::Keyword(keyword, token_info_if)) if keyword == KeywordToken::If => {
+                self.advance();
+                self.consume_optional_whitespace();
+                let (condition_expression, token_info) = self.parse_logical_term()?;
+                if condition_expression.tipe() == &LanguageType::Boolean {
+                    self.consume_optional_whitespace();
+                    let (if_block_expression, _) = self.parse_logical_term()?;
+                    let if_block_tipe = if_block_expression.tipe().clone();
+
+                    self.consume_optional_whitespace();
+
+                    match self.peek().cloned(){
+                        Some(Token::Keyword(keyword, token_info_while)) if keyword == KeywordToken::Else => {
+                            self.advance();
+                            self.consume_optional_whitespace();
+
+                            let (else_block_expression, token_info) = self.parse_logical_term()?;
+                            let else_block_tipe = else_block_expression.tipe();
+
+                            if if_block_tipe == *else_block_tipe {
+                                Ok((Either::IfElseStatement(Box::new(condition_expression), Box::new(if_block_expression), Box::new(else_block_expression), if_block_tipe), token_info_if))
+                            }else{
+
+                                    Err(Error::TypeError(format!( "Type Error: type mismatched of if and else block found at line {}, column {}",
+                                token_info.line_number,
+                                token_info.column_number
+                            )))
+                            }
+                    }
+                    Some(other_token) =>
+                                    Err(Error::SyntaxError(format!( "Syntax Error: Cannot parse matching else block at line {}, column {}, found {} instead",
+                                other_token.get_token_info().line_number,
+                                other_token.get_token_info().column_number,
+                                other_token.value(),
+                            ))),
+                                    _ => unreachable!(),
+                }
+                } else {
+                    Err(Error::TypeError(format!(
+                        "Type Error: Type mismatched found at line {}, column {}",
+                        token_info.line_number, token_info.column_number
+                    )))
+                }
+            }
+            Some(token) => Err(Error::ParseError(format!(
+                "Parsing Error: Cannot parse ifelse statement found at line {}, column {}",
+                token.get_token_info().line_number,
+                token.get_token_info().column_number,
+            ))),
+            _ => unreachable!(),
+        }
+    }
 
     fn parse_while_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
         self.consume_optional_whitespace();
@@ -638,12 +708,11 @@ impl<'b, 'a> Parser<'b, 'a> {
                         ),
                         token_info_while,
                     ))
-                }else{
-                        Err(Error::ParseError(format!(
-                    "Type Error: Cannot parse while statement found at line {}, column {}",
-                    token_info.line_number,
-                    token_info.column_number
-                )))
+                } else {
+                    Err(Error::ParseError(format!(
+                        "Type Error: Cannot parse while statement found at line {}, column {}",
+                        token_info.line_number, token_info.column_number
+                    )))
                 }
             }
             Some(token) => Err(Error::ParseError(format!(
@@ -759,7 +828,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                                 "Parsing Error: Cannot parse assignment statement found at line {}, column {}",
                                 other_token.get_token_info().line_number,
                                 other_token.get_token_info().column_number
-                            ))) 
+                            )))
                             }
                             None => Err(Error::ParseError(format!(
                                 "Parsing Error: Cannot parse assignment statement found at line {}, column {}",
@@ -1176,7 +1245,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                 token.get_token_info().line_number,
                 token.get_token_info().column_number,
             ))),
-            None => unreachable!(), 
+            None => unreachable!(),
         }
     }
 }
@@ -1197,6 +1266,7 @@ enum Either {
     Identifier(String, LanguageType),
     BlockStatement(Vec<Either>, LanguageType),
     WhileStatement(Box<Either>, Box<Either>, LanguageType),
+    IfElseStatement(Box<Either>, Box<Either>, Box<Either>, LanguageType),
 }
 
 impl Either {
@@ -1220,6 +1290,7 @@ impl Either {
             Self::Identifier(_, tipe) => tipe,
             Self::BlockStatement(_, tipe) => tipe,
             Self::WhileStatement(_, _, tipe) => tipe,
+            Self::IfElseStatement(_, _, _, tipe) => tipe,
         }
     }
 }
@@ -1518,6 +1589,19 @@ impl Interpreter {
                         InternalDataStucture::Bool(b) if b == false => break,
                         _ => unreachable!(),
                     }
+                }
+                result
+            }
+            Either::IfElseStatement(condition, if_block_statement, else_block_statement, _) => {
+                let result;
+                match self.calculate_statement(condition) {
+                    InternalDataStucture::Bool(b) if b == true => {
+                        result = self.calculate_statement(if_block_statement);
+                    }
+                    InternalDataStucture::Bool(b) if b == false => {
+                        result = self.calculate_statement(else_block_statement);
+                    }
+                    _ => unreachable!(),
                 }
                 result
             }
