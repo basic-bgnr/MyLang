@@ -10,10 +10,12 @@ enum KeywordToken {
     True,
     False,
     While,
+    If,
+    Else,
 }
 impl KeywordToken {
-    fn get_all() -> [KeywordToken; 4] {
-        [Self::Let, Self::True, Self::False, Self::While]
+    fn get_all() -> [KeywordToken; 6] {
+        [Self::Let, Self::True, Self::False, Self::While, Self::If, Self::Else]
     }
     fn value(&self) -> &str {
         match self {
@@ -21,6 +23,8 @@ impl KeywordToken {
             Self::True => "true",
             Self::False => "false",
             Self::While => "while",
+            Self::If => "if",
+            Self::Else=> "else",
         }
     }
     fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
