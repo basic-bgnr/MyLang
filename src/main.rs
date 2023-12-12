@@ -1532,43 +1532,7 @@ impl Interpreter {
             previous_identifiers: None,
         }
     }
-    fn append_new_identifiers(&mut self, new_identifiers: Option<Vec<Either>>) {
-        if let Some(mut new_identifiers) = new_identifiers {
-            match self.previous_identifiers {
-                Some(ref mut previous_identifiers) => {
-                    previous_identifiers.append(&mut new_identifiers)
-                }
-                None => {
-                    self.previous_identifiers = Some(new_identifiers);
-                }
-            }
-        }
-    }
 
-    fn tokenize_and_parse(&self, input: &str) -> Result<(Vec<Either>, Option<Vec<Either>>), Error> {
-        let input_chars = input.chars().collect::<Vec<_>>();
-
-        let mut tokenizer = Tokenizer::new(&input_chars);
-        let tokens = tokenizer.tokenize();
-
-        match tokens {
-            Ok(token_list) => {
-                let mut parser = Parser::new(&token_list);
-                parser.add_reference_to_previous_identifiers(self.previous_identifiers.as_deref());
-
-                let parsed_statement = parser.parse()?;
-
-                Ok((parsed_statement, parser.get_identifiers_list()))
-            }
-            Err(err) => Err(Error::ParseError(
-                err.into_iter()
-                    .map(|x| x + "\n")
-                    .collect::<String>()
-                    .trim_end()
-                    .to_string(),
-            )),
-        }
-    }
     fn calculate_statement(&mut self, statement: &Either) -> InternalDataStucture {
         match statement {
             Either::Number(val) => InternalDataStucture::Number(*val),
@@ -1653,7 +1617,43 @@ impl Interpreter {
             }
         }
     }
+    fn append_new_identifiers(&mut self, new_identifiers: Option<Vec<Either>>) {
+        if let Some(mut new_identifiers) = new_identifiers {
+            match self.previous_identifiers {
+                Some(ref mut previous_identifiers) => {
+                    previous_identifiers.append(&mut new_identifiers)
+                }
+                None => {
+                    self.previous_identifiers = Some(new_identifiers);
+                }
+            }
+        }
+    }
 
+    fn tokenize_and_parse(&self, input: &str) -> Result<(Vec<Either>, Option<Vec<Either>>), Error> {
+        let input_chars = input.chars().collect::<Vec<_>>();
+
+        let mut tokenizer = Tokenizer::new(&input_chars);
+        let tokens = tokenizer.tokenize();
+
+        match tokens {
+            Ok(token_list) => {
+                let mut parser = Parser::new(&token_list);
+                parser.add_reference_to_previous_identifiers(self.previous_identifiers.as_deref());
+
+                let parsed_statement = parser.parse()?;
+
+                Ok((parsed_statement, parser.get_identifiers_list()))
+            }
+            Err(err) => Err(Error::ParseError(
+                err.into_iter()
+                    .map(|x| x + "\n")
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string(),
+            )),
+        }
+    }
     fn interpret(&mut self, input: &str) {
         match self.tokenize_and_parse(input) {
             Ok((parsed_statements, new_identifiers)) => {
