@@ -1345,6 +1345,12 @@ impl Either {
             _ => unimplemented!(),
         }
     }
+    fn name(&self) -> &str {
+        match self {
+            Self::Identifier(name, _) => name,
+            _ => unimplemented!(),
+        }
+    }
 
     fn tipe(&self) -> &LanguageType {
         match self {
