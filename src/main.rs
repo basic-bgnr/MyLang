@@ -560,21 +560,12 @@ impl<'a> Parser<'a> {
         match self.identifiers_list.as_deref_mut() {
             Some(identifiers) => {
                 for identifier in identifiers.iter_mut().rev() {
-                    if let Either::Identifier(identifier_name, _) = identifier {
-                        if let Either::Identifier(name_of_identifier_to_modify, _) =
-                            identifier_to_modify
-                        {
-                            if name_of_identifier_to_modify == identifier_name {
-                                *identifier =
-                                    Either::Identifier(identifier_name.to_string(), type_value);
-
-                                return;
-                            }
-                        }
+                    if identifier.name() == identifier_to_modify.name() {
+                        *identifier = Either::Identifier(identifier.name().to_string(), type_value);
                     }
                 }
             }
-            a => {}
+            _ => {}
         }
     }
 
