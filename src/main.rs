@@ -14,6 +14,7 @@ fn main() {
     counter a b
     ";
     println!("Fibonacci Calculator:\n{}", prompt);
+
     let mut interpreter = Interpreter::new();
 
     interpreter.interpret(prompt);
@@ -462,32 +463,26 @@ impl<'a> Tokenizer<'a> {
     }
 }
 
-struct Parser<'b, 'a: 'b> {
+struct Parser<'a> {
     tokens: &'a [Token<'a>],
     index: usize,
     back_track_index: usize,
     len: usize,
-    // program: Vec<Either>,
     block_position: usize,
     num_identifiers_in_block: Vec<usize>,
-    identifiers_list: Option<Vec<Either>>, //usize is the block_position of the identifier
-    // prev_program: Option<&'b [Either]>,
-    previous_identifiers: Option<&'b [Either]>,
+    identifiers_list: Option<Vec<Either>>,
 }
 
-impl<'b, 'a> Parser<'b, 'a> {
+impl<'a> Parser<'a> {
     fn new(tokens: &'a [Token<'a>]) -> Self {
         Parser {
             tokens: tokens,
             index: 0,
             back_track_index: 0,
             len: tokens.len(),
-            // program: Vec::new(),
             block_position: 0,
             num_identifiers_in_block: vec![0],
             identifiers_list: None,
-            // prev_program: None,
-            previous_identifiers: None,
         }
     }
     fn increment_num_identifier_in_current_block(&mut self) {
@@ -510,13 +505,6 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
         self.block_position -= 1;
         self.num_identifiers_in_block.pop();
-    }
-
-    fn add_reference_to_previous_identifiers(
-        &mut self,
-        previous_identifiers: Option<&'b [Either]>,
-    ) {
-        self.previous_identifiers = previous_identifiers;
     }
 
     fn remember_index(&mut self) {
@@ -548,12 +536,12 @@ impl<'b, 'a> Parser<'b, 'a> {
         self.increment_num_identifier_in_current_block();
     }
 
-    fn match_identifier_in_list(
-        &self,
-        name: &str,
-        identifiers_list: Option<&'b [Either]>,
-    ) -> Option<Either> {
-        match identifiers_list {
+    fn set_previous_identifiers_list(&mut self, previous_identifier_list: Option<Vec<Either>>) {
+        self.identifiers_list = previous_identifier_list
+    }
+
+    fn get_reference_to_identifier(&self, name: &str) -> Option<Either> {
+        match &self.identifiers_list {
             Some(identifiers) => {
                 for identifier in identifiers.iter().rev() {
                     if let identifier @ Either::Identifier(identifier_name, _) = identifier {
@@ -568,10 +556,28 @@ impl<'b, 'a> Parser<'b, 'a> {
         }
     }
 
-    fn get_reference_to_identifier(&self, name: &str) -> Option<Either> {
-        self.match_identifier_in_list(name, self.identifiers_list.as_deref())
-            .or_else(|| self.match_identifier_in_list(name, self.previous_identifiers))
+    fn modify_identifier_type(&mut self, identifier_to_modify: &Either, type_value: LanguageType) {
+        match self.identifiers_list.as_deref_mut() {
+            Some(identifiers) => {
+                for identifier in identifiers.iter_mut().rev() {
+                    if let Either::Identifier(identifier_name, _) = identifier {
+                        if let Either::Identifier(name_of_identifier_to_modify, _) =
+                            identifier_to_modify
+                        {
+                            if name_of_identifier_to_modify == identifier_name {
+                                *identifier =
+                                    Either::Identifier(identifier_name.to_string(), type_value);
+
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            a => {}
+        }
     }
+
     fn advance(&mut self) -> Option<&Token> {
         if self.index < self.len {
             let return_value = &self.tokens[self.index];
@@ -619,6 +625,7 @@ impl<'b, 'a> Parser<'b, 'a> {
             }
         }
         // println!("{:?}", statements);
+
         Ok(statements)
     }
 
@@ -718,6 +725,17 @@ impl<'b, 'a> Parser<'b, 'a> {
                                     }
                                 }
                             }
+                            Some(token) => {
+                                self.push_identifier(&Either::Identifier(
+                                    identifier.value(),
+                                    LanguageType::Void,
+                                ));
+
+                                Ok((
+                                    LetStatement::new(identifier.value(), Either::Placeholder),
+                                    token_info,
+                                ))
+                            }
                             Some(token) => Err(Error::SyntaxError(format!(
                                 "Syntax Error: No equal found at line {}, column {}",
                                 token.get_token_info().line_number,
@@ -764,7 +782,8 @@ impl<'b, 'a> Parser<'b, 'a> {
                                 self.advance();
                                 self.consume_optional_whitespace();
                                 let (term, token_info) = self.parse_expression()?;
-                                if term.tipe() == identifier.tipe() {
+                                if term.tipe() == identifier.tipe() || identifier.tipe() == &LanguageType::Void{
+                                    self.modify_identifier_type(&identifier, *term.tipe());
                                     Ok((
                                         AssignmentStatement::new(identifier_token.value(), term),
                                         token_info,
@@ -792,7 +811,7 @@ impl<'b, 'a> Parser<'b, 'a> {
                         }
                     }
                     None => Err(Error::IdentifierError(format!(
-                        "Identifier Error: use of undeclared variable '{}' encountered at line {}, {}",
+                        "Identifier Error: use of undeclared variable '{}' encountered at line {}, column {}",
                         identifier_token.value(),
                         token_info.line_number,
                         token_info.column_number
@@ -1017,7 +1036,9 @@ impl<'b, 'a> Parser<'b, 'a> {
                 Some(Token::Operator(
                     operator_token @ (OperatorToken::PLUS | OperatorToken::MINUS),
                     token_info,
-                )) if first_expression.tipe() == &LanguageType::Boolean => {
+                )) if first_expression.tipe() == &LanguageType::Boolean
+                    || first_expression.tipe() == &LanguageType::Void =>
+                {
                     return Err(Error::TypeError(format!(
                         "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
@@ -1062,7 +1083,9 @@ impl<'b, 'a> Parser<'b, 'a> {
                 Some(Token::Operator(
                     operator_token @ (OperatorToken::STAR | OperatorToken::DIVIDE),
                     token_info,
-                )) if first_expression.tipe() == &LanguageType::Boolean => {
+                )) if first_expression.tipe() == &LanguageType::Boolean
+                    || first_expression.tipe() == &LanguageType::Void =>
+                {
                     return Err(Error::TypeError(format!(
                         "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
@@ -1311,6 +1334,8 @@ enum Either {
     Identifier(String, LanguageType),
     Number(f64),
     Bool(bool),
+
+    Placeholder,
 }
 
 impl Either {
@@ -1335,6 +1360,8 @@ impl Either {
             Self::BlockStatement(_, tipe) => tipe,
             Self::WhileStatement(_, _) => &LanguageType::Void,
             Self::IfElseStatement(_, _, _, tipe) => tipe,
+
+            Self::Placeholder => &LanguageType::Void,
         }
     }
 }
@@ -1501,11 +1528,6 @@ impl Environment {
         self.container[location].insert(lvalue, rvalue);
     }
     fn get(&self, name: &str) -> Option<&InternalDataStucture> {
-        // self.container.get(name).or_else(|| {
-        //     self.parent
-        //         .as_ref()
-        //         .and_then(|parent_env| parent_env.get(name))
-        // })
         for container in self.container.iter().rev() {
             if container.contains_key(name) {
                 return container.get(name);
@@ -1615,22 +1637,15 @@ impl Interpreter {
                 }
                 result
             }
-        }
-    }
-    fn append_new_identifiers(&mut self, new_identifiers: Option<Vec<Either>>) {
-        if let Some(mut new_identifiers) = new_identifiers {
-            match self.previous_identifiers {
-                Some(ref mut previous_identifiers) => {
-                    previous_identifiers.append(&mut new_identifiers)
-                }
-                None => {
-                    self.previous_identifiers = Some(new_identifiers);
-                }
-            }
+            Either::Placeholder => return InternalDataStucture::Void,
         }
     }
 
-    fn tokenize_and_parse(&self, input: &str) -> Result<(Vec<Either>, Option<Vec<Either>>), Error> {
+    fn tokenize_and_parse(
+        &mut self,
+        input: &str,
+        previous_identifiers: Option<Vec<Either>>,
+    ) -> Result<(Vec<Either>, Option<Vec<Either>>), Error> {
         let input_chars = input.chars().collect::<Vec<_>>();
 
         let mut tokenizer = Tokenizer::new(&input_chars);
@@ -1639,23 +1654,34 @@ impl Interpreter {
         match tokens {
             Ok(token_list) => {
                 let mut parser = Parser::new(&token_list);
-                parser.add_reference_to_previous_identifiers(self.previous_identifiers.as_deref());
+                parser.set_previous_identifiers_list(previous_identifiers);
 
-                let parsed_statement = parser.parse()?;
-
-                Ok((parsed_statement, parser.get_identifiers_list()))
+                match parser.parse() {
+                    Ok(parsed_statements) => Ok((parsed_statements, parser.get_identifiers_list())),
+                    Err(err) => {
+                        self.set_previous_identifiers(parser.get_identifiers_list());
+                        Err(err)
+                    }
+                }
             }
-            Err(err) => Err(Error::ParseError(
-                err.into_iter()
-                    .map(|x| x + "\n")
-                    .collect::<String>()
-                    .trim_end()
-                    .to_string(),
-            )),
+            Err(err) => {
+                self.set_previous_identifiers(previous_identifiers);
+                Err(Error::ParseError(
+                    err.into_iter()
+                        .map(|x| x + "\n")
+                        .collect::<String>()
+                        .trim_end()
+                        .to_string(),
+                ))
+            }
         }
     }
+    fn set_previous_identifiers(&mut self, previous_identifiers: Option<Vec<Either>>) {
+        self.previous_identifiers = previous_identifiers;
+    }
     fn interpret(&mut self, input: &str) {
-        match self.tokenize_and_parse(input) {
+        let previous_identifiers = self.previous_identifiers.take();
+        match self.tokenize_and_parse(input, previous_identifiers) {
             Ok((parsed_statements, new_identifiers)) => {
                 for statement in parsed_statements {
                     match self.calculate_statement(&statement) {
@@ -1663,9 +1689,11 @@ impl Interpreter {
                         result => println!("{:?}", result),
                     }
                 }
-                self.append_new_identifiers(new_identifiers);
+                self.set_previous_identifiers(new_identifiers);
             }
-            Err(error) => println!("{:?}", error),
+            Err(error) => {
+                println!("{:?}", error);
+            }
         }
     }
 
