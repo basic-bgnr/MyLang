@@ -723,7 +723,10 @@ impl<'a> Parser<'a> {
                                 ));
 
                                 Ok((
-                                    LetStatement::new(identifier.value(), Either::Placeholder),
+                                    LetStatement::new(
+                                        identifier.value(),
+                                        Either::Placeholder(LanguageType::Untyped),
+                                    ),
                                     token_info,
                                 ))
                             }
@@ -1311,6 +1314,9 @@ enum LanguageType {
     Number,
     Boolean,
     Void,
+
+    PartiallyTyped,
+    Untyped,
 }
 #[derive(Debug)]
 enum Either {
@@ -1326,7 +1332,7 @@ enum Either {
     Number(f64),
     Bool(bool),
 
-    Placeholder,
+    Placeholder(LanguageType),
 }
 
 impl Either {
@@ -1358,7 +1364,7 @@ impl Either {
             Self::WhileStatement(_, _) => &LanguageType::Void,
             Self::IfElseStatement(_, _, _, tipe) => tipe,
 
-            Self::Placeholder => &LanguageType::Void,
+            Self::Placeholder(tipe) => tipe,
         }
     }
 }
@@ -1634,7 +1640,7 @@ impl Interpreter {
                 }
                 result
             }
-            Either::Placeholder => return InternalDataStucture::Void,
+            Either::Placeholder(tipe) => InternalDataStucture::Void,
         }
     }
 
