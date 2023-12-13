@@ -611,7 +611,7 @@ impl<'a> Parser<'a> {
             self.consume_optional_whitespace();
             statements.push(parsed_statement);
 
-            if let Some(Token::EOF(_)) = self.peek() {
+            if self.peek().is_none() {
                 break;
             }
         }
@@ -621,7 +621,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_next_statement(&mut self) -> Result<Either, Error> {
-        self.parse_while_statement()
+        self.parse_halt_statement()
+            .or_else(|e| match e {
+                Error::ParseError(_) => self.parse_while_statement(),
+                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+            })
             .or_else(|e| match e {
                 Error::ParseError(_) => self.parse_let_statement(),
                 Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
@@ -641,6 +645,20 @@ impl<'a> Parser<'a> {
                 | Error::SyntaxError(_)) => Err(e),
             })
             .map(|(statement, _)| statement)
+    }
+    fn parse_halt_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
+        match self.peek().cloned() {
+            Some(Token::EOF(token_info)) => {
+                self.advance();
+                Ok((Either::HaltStatement, token_info))
+            }
+            Some(token) => Err(Error::ParseError(format!(
+                "Parsing Error: Cannot parse while statement found at line {}, column {}",
+                token.get_token_info().line_number,
+                token.get_token_info().column_number,
+            ))),
+            None => unreachable!(),
+        }
     }
     fn parse_while_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
         self.consume_optional_whitespace();
@@ -1299,12 +1317,14 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok((Either::Bool(false), token_info))
             }
+
             Some(token) => Err(Error::SyntaxError(format!(
                 "Syntax Error: Value other than literal (Number, Boolean...) '{}' encountered at line {}, column {}",
                 token.value(),
                 token.get_token_info().line_number,
                 token.get_token_info().column_number,
             ))),
+
             None => unreachable!(),
         }
     }
@@ -1333,6 +1353,8 @@ enum Either {
     Bool(bool),
 
     Placeholder(LanguageType),
+
+    HaltStatement,
 }
 
 impl Either {
@@ -1365,6 +1387,7 @@ impl Either {
             Self::IfElseStatement(_, _, _, tipe) => tipe,
 
             Self::Placeholder(tipe) => tipe,
+            Self::HaltStatement => &LanguageType::Void,
         }
     }
 }
@@ -1641,6 +1664,7 @@ impl Interpreter {
                 result
             }
             Either::Placeholder(tipe) => InternalDataStucture::Void,
+            Either::HaltStatement => InternalDataStucture::Void,
         }
     }
 
@@ -1698,6 +1722,7 @@ impl Interpreter {
                 println!("{:?}", error);
             }
         }
+        println!("{:?}", self.environment);
     }
 
     fn interactive_prompt(&mut self) {
