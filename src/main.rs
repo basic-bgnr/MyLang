@@ -845,17 +845,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
-        self.parse_if_else_expression()
-            .or_else(|e| match e {
-                Error::ParseError(_) => self.parse_logical_term(),
-                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
-            })
-            .or_else(|e| match e {
-                e @ (Error::ParseError(_)
-                | Error::TypeError(_)
-                | Error::IdentifierError(_)
-                | Error::SyntaxError(_)) => Err(e),
-            })
+        self.parse_if_else_expression().or_else(|e| match e {
+            Error::ParseError(_) => self.parse_logical_term(),
+            Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+        })
+        // .or_else(|e| match e {
+        //     e @ (Error::ParseError(_)
+        //     | Error::TypeError(_)
+        //     | Error::IdentifierError(_)
+        //     | Error::SyntaxError(_)) => Err(e),
+        // })
     }
 
     fn parse_if_else_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
@@ -877,7 +876,7 @@ impl<'a> Parser<'a> {
                             self.advance();
                             self.consume_optional_whitespace();
 
-                            let (else_block_expression, token_info) = self.parse_logical_term()?;
+                            let (else_block_expression, token_info) = self.parse_expression()?;
                             let else_block_tipe = else_block_expression.tipe();
 
                             if if_block_tipe == *else_block_tipe {
@@ -1165,7 +1164,7 @@ impl<'a> Parser<'a> {
         match self.peek().cloned() {
             Some(Token::Symbol(SymbolToken::SmallBracketOpen, token_info)) => {
                 self.advance();
-                let (val, token_info) = self.parse_logical_term()?;
+                let (val, token_info) = self.parse_expression()?;
                 match self.peek().cloned() {
                     Some(Token::Symbol(SymbolToken::SmallBracketClose, _)) => {
                         self.advance();
