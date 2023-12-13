@@ -470,7 +470,7 @@ struct Parser<'a> {
     len: usize,
     block_position: usize,
     num_identifiers_in_block: Vec<usize>,
-    identifiers_list: Option<Vec<Either>>,
+    identifiers_list: Option<Vec<Identifier>>,
 }
 
 impl<'a> Parser<'a> {
@@ -519,49 +519,52 @@ impl<'a> Parser<'a> {
         self.index = index;
     }
 
-    fn get_identifiers_list(self) -> Option<Vec<Either>> {
+    fn get_identifiers_list(self) -> Option<Vec<Identifier>> {
         self.identifiers_list
     }
 
-    fn push_identifier(&mut self, identifier: &Either) {
+    fn push_identifier(&mut self, identifier: Identifier) {
         if self.identifiers_list.is_none() {
-            self.identifiers_list = Some(vec![identifier.clone()]);
+            self.identifiers_list = Some(vec![identifier]);
         } else {
-            self.identifiers_list
-                .as_mut()
-                .unwrap()
-                .push(identifier.clone());
+            self.identifiers_list.as_mut().unwrap().push(identifier);
         }
 
         self.increment_num_identifier_in_current_block();
     }
 
-    fn set_previous_identifiers_list(&mut self, previous_identifier_list: Option<Vec<Either>>) {
+    fn set_previous_identifiers_list(&mut self, previous_identifier_list: Option<Vec<Identifier>>) {
         self.identifiers_list = previous_identifier_list
     }
 
-    fn get_reference_to_identifier(&self, name: &str) -> Option<Either> {
+    fn get_reference_to_identifier(&self, name: &str) -> Option<Identifier> {
         match &self.identifiers_list {
             Some(identifiers) => {
                 for identifier in identifiers.iter().rev() {
-                    if let identifier @ Either::Identifier(identifier_name, _) = identifier {
-                        if name == identifier_name {
-                            return Some(identifier.clone());
-                        }
+                    if name == identifier.name {
+                        return Some(identifier.clone());
                     }
                 }
-                None
             }
-            None => None,
+            None => return None,
         }
+        None
     }
 
-    fn modify_identifier_type(&mut self, identifier_to_modify: &Either, type_value: LanguageType) {
+    fn modify_identifier_type(
+        &mut self,
+        identifier_to_modify: &Identifier,
+        tipe_value: LanguageType,
+    ) {
         match self.identifiers_list.as_deref_mut() {
             Some(identifiers) => {
-                for identifier in identifiers.iter_mut().rev() {
-                    if identifier.name() == identifier_to_modify.name() {
-                        *identifier = Either::Identifier(identifier.name().to_string(), type_value);
+                for mut identifier in identifiers.iter_mut().rev() {
+                    if identifier.name == identifier_to_modify.name {
+                        *identifier = Identifier::new(
+                            &identifier.name,
+                            identifier.block_position,
+                            tipe_value,
+                        );
                     }
                 }
             }
@@ -722,8 +725,9 @@ impl<'a> Parser<'a> {
                                         token_info.line_number, token_info.column_number
                                     ))),
                                     _ => {
-                                        self.push_identifier(&Either::Identifier(
-                                            identifier.value(),
+                                        self.push_identifier(Identifier::new(
+                                            &identifier.value(),
+                                            self.get_block_position(),
                                             *tipe,
                                         ));
 
@@ -735,8 +739,9 @@ impl<'a> Parser<'a> {
                                 }
                             }
                             Some(token) => {
-                                self.push_identifier(&Either::Identifier(
-                                    identifier.value(),
+                                self.push_identifier(Identifier::new(
+                                    &identifier.value(),
+                                    self.get_block_position(),
                                     LanguageType::Void,
                                 ));
 
@@ -936,7 +941,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Some(Token::Operator(
-                    (OperatorToken::LOGICAL_AND | OperatorToken::LOGICAL_OR),
+                    OperatorToken::LOGICAL_AND | OperatorToken::LOGICAL_OR,
                     token_info,
                 )) if first_expression.tipe() == &LanguageType::Number => {
                     return Err(Error::TypeError(format!(
@@ -1247,7 +1252,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let var_name = var_name.iter().collect::<String>();
                 match self.get_reference_to_identifier(&var_name) {
-                    Some(identifier) => Ok((identifier.clone(), token_info)),
+                    Some(identifier) => Ok((identifier.clone_to_ast(), token_info)),
                     None => Err(Error::IdentifierError(format!(
                 "Identifier Error: No variable named '{}' found in scope at line {}, column {}",
                 var_name,
@@ -1348,7 +1353,7 @@ enum Either {
     BinaryExpression(Box<BinaryExpression>),
     UnaryExpression(Box<UnaryExpression>),
     BlockStatement(Vec<Either>, LanguageType),
-    Identifier(String, LanguageType),
+    Identifier(Identifier),
     Number(f64),
     Bool(bool),
 
@@ -1358,19 +1363,6 @@ enum Either {
 }
 
 impl Either {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Identifier(name, tipe) => Self::Identifier(name.clone(), tipe.clone()),
-            _ => unimplemented!(),
-        }
-    }
-    fn name(&self) -> &str {
-        match self {
-            Self::Identifier(name, _) => name,
-            _ => unimplemented!(),
-        }
-    }
-
     fn tipe(&self) -> &LanguageType {
         match self {
             Self::Number(_) => &LanguageType::Number,
@@ -1381,7 +1373,7 @@ impl Either {
             Self::AssignmentStatement(boxed_assignment_statement) => {
                 boxed_assignment_statement.tipe()
             }
-            Self::Identifier(_, tipe) => tipe,
+            Self::Identifier(identifier) => identifier.tipe(),
             Self::BlockStatement(_, tipe) => tipe,
             Self::WhileStatement(_, _) => &LanguageType::Void,
             Self::IfElseStatement(_, _, _, tipe) => tipe,
@@ -1471,6 +1463,40 @@ impl LetStatement {
         &LanguageType::Void
     }
 }
+
+#[derive(Debug)]
+struct Identifier {
+    name: String,
+    block_position: usize,
+    tipe: LanguageType,
+}
+
+impl Identifier {
+    fn new(name: &str, block_position: usize, tipe: LanguageType) -> Self {
+        Self {
+            name: name.to_string(),
+            block_position: block_position,
+            tipe: tipe,
+        }
+    }
+    fn new_ast(name: String, block_position: usize, tipe: LanguageType) -> Either {
+        Either::Identifier(Self {
+            name: name,
+            block_position: block_position,
+            tipe: tipe,
+        })
+    }
+    fn tipe(&self) -> &LanguageType {
+        &self.tipe
+    }
+    fn clone(&self) -> Identifier {
+        Self::new(&self.name, self.block_position, self.tipe)
+    }
+    fn clone_to_ast(&self) -> Either {
+        Self::new_ast(self.name.to_string(), self.block_position, self.tipe)
+    }
+}
+
 ///////////////////////////////////////////////////////// Interpreter Code /////////////////////////////////////////////////
 #[derive(Debug, Clone, Copy)]
 enum InternalDataStucture {
@@ -1570,7 +1596,7 @@ impl Environment {
 }
 struct Interpreter {
     environment: Environment,
-    previous_identifiers: Option<Vec<Either>>,
+    previous_identifiers: Option<Vec<Identifier>>,
 }
 
 impl Interpreter {
@@ -1622,7 +1648,9 @@ impl Interpreter {
                     }
                 }
             }
-            Either::Identifier(name, _) => self.environment.get(&name).unwrap().clone(),
+            Either::Identifier(identifier) => {
+                self.environment.get(&identifier.name).unwrap().clone()
+            }
 
             Either::BlockStatement(statements, tipe) => {
                 let mut result = InternalDataStucture::Void;
@@ -1671,8 +1699,8 @@ impl Interpreter {
     fn tokenize_and_parse(
         &mut self,
         input: &str,
-        previous_identifiers: Option<Vec<Either>>,
-    ) -> Result<(Vec<Either>, Option<Vec<Either>>), Error> {
+        previous_identifiers: Option<Vec<Identifier>>,
+    ) -> Result<(Vec<Either>, Option<Vec<Identifier>>), Error> {
         let input_chars = input.chars().collect::<Vec<_>>();
 
         let mut tokenizer = Tokenizer::new(&input_chars);
@@ -1703,7 +1731,7 @@ impl Interpreter {
             }
         }
     }
-    fn set_previous_identifiers(&mut self, previous_identifiers: Option<Vec<Either>>) {
+    fn set_previous_identifiers(&mut self, previous_identifiers: Option<Vec<Identifier>>) {
         self.previous_identifiers = previous_identifiers;
     }
     fn interpret(&mut self, input: &str) {
@@ -1722,7 +1750,7 @@ impl Interpreter {
                 println!("{:?}", error);
             }
         }
-        println!("{:?}", self.environment);
+        // println!("{:?}", self.environment);
     }
 
     fn interactive_prompt(&mut self) {
