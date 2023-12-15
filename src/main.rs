@@ -605,7 +605,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse(&mut self) -> Result<Vec<Either>, Error> {
+    fn parse(&mut self) -> Result<Vec<AST>, Error> {
         let mut statements = Vec::new();
         loop {
             let parsed_statement = self.parse_next_statement()?;
@@ -622,7 +622,7 @@ impl<'a> Parser<'a> {
         Ok(statements)
     }
 
-    fn parse_next_statement(&mut self) -> Result<Either, Error> {
+    fn parse_next_statement(&mut self) -> Result<AST, Error> {
         self.parse_halt_statement()
             .or_else(|e| match e {
                 Error::ParseError(_) => self.parse_while_statement(),
@@ -648,11 +648,11 @@ impl<'a> Parser<'a> {
             })
             .map(|(statement, _)| statement)
     }
-    fn parse_halt_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_halt_statement(&mut self) -> Result<(AST, TokenInfo), Error> {
         match self.peek().cloned() {
             Some(Token::EOFToken { token_info }) => {
                 self.advance();
-                Ok((Either::HaltStatement, token_info))
+                Ok((AST::HaltStatement, token_info))
             }
             Some(token) => Err(Error::ParseError(format!(
                 "Parsing Error: Cannot parse while statement found at line {}, column {}",
@@ -662,7 +662,7 @@ impl<'a> Parser<'a> {
             None => unreachable!(),
         }
     }
-    fn parse_while_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_while_statement(&mut self) -> Result<(AST, TokenInfo), Error> {
         self.consume_optional_whitespace();
         match self.peek().cloned() {
             Some(Token::KeywordToken {
@@ -677,7 +677,7 @@ impl<'a> Parser<'a> {
                     let (block_expression, _) = self.parse_logical_term()?;
                     let tipe = block_expression.tipe().clone();
                     Ok((
-                        Either::WhileStatement(
+                        AST::WhileStatement(
                             Box::new(condition_expression),
                             Box::new(block_expression),
                         ),
@@ -699,7 +699,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_let_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_let_statement(&mut self) -> Result<(AST, TokenInfo), Error> {
         self.consume_optional_whitespace();
         match self.peek().cloned() {
             Some(Token::KeywordToken {
@@ -752,7 +752,7 @@ impl<'a> Parser<'a> {
                                 Ok((
                                     LetStatement::new(
                                         lexeme.to_string(),
-                                        Either::Placeholder(LanguageType::Untyped),
+                                        AST::Placeholder(LanguageType::Untyped),
                                     ),
                                     token_info,
                                 ))
@@ -787,7 +787,7 @@ impl<'a> Parser<'a> {
             _ => unreachable!(),
         }
     }
-    fn parse_assignment_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_assignment_statement(&mut self) -> Result<(AST, TokenInfo), Error> {
         self.consume_optional_whitespace();
         self.remember_index();
         match self.peek().cloned() {
@@ -847,14 +847,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_expression(&mut self) -> Result<(AST, TokenInfo), Error> {
         self.parse_if_else_expression().or_else(|e| match e {
             Error::ParseError(_) => self.parse_logical_term(),
             Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
         })
     }
 
-    fn parse_if_else_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_if_else_expression(&mut self) -> Result<(AST, TokenInfo), Error> {
         self.consume_optional_whitespace();
         match self.peek().cloned() {
             Some(Token::KeywordToken {
@@ -880,7 +880,7 @@ impl<'a> Parser<'a> {
                             let else_block_tipe = else_block_expression.tipe();
 
                             if if_block_tipe == *else_block_tipe {
-                                Ok((Either::IfElseStatement(Box::new(condition_expression), Box::new(if_block_expression), Box::new(else_block_expression), if_block_tipe), token_info))
+                                Ok((AST::IfElseStatement(Box::new(condition_expression), Box::new(if_block_expression), Box::new(else_block_expression), if_block_tipe), token_info))
                             }else{
 
                                     Err(Error::TypeError(format!( "Type Error: type mismatched of if and else block found at line {}, column {}",
@@ -913,7 +913,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_logical_term(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_logical_term(&mut self) -> Result<(AST, TokenInfo), Error> {
         self.consume_optional_whitespace();
         let (mut first_expression, token_info) = self.parse_comparison_term()?;
         loop {
@@ -956,7 +956,7 @@ impl<'a> Parser<'a> {
             }
         }
     }
-    fn parse_comparison_term(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_comparison_term(&mut self) -> Result<(AST, TokenInfo), Error> {
         let (mut first_expression, token_info) = self.parse_term()?;
 
         loop {
@@ -1017,7 +1017,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_term(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_term(&mut self) -> Result<(AST, TokenInfo), Error> {
         let (mut first_expression, token_info) = self.parse_prod()?;
         loop {
             match self.peek().cloned() {
@@ -1061,7 +1061,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_prod(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_prod(&mut self) -> Result<(AST, TokenInfo), Error> {
         let (mut first_expression, token_info) = self.parse_unary()?;
         loop {
             match self.peek().cloned() {
@@ -1106,7 +1106,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_unary(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_unary(&mut self) -> Result<(AST, TokenInfo), Error> {
         match self.peek().cloned() {
             Some(Token::OperatorToken {
                 operator: operator @ (Operators::PLUS | Operators::MINUS),
@@ -1150,7 +1150,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_bracket(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_bracket(&mut self) -> Result<(AST, TokenInfo), Error> {
         match self.peek().cloned() {
             Some(Token::SymbolToken {
                 symbol: Symbols::SmallBracketOpen,
@@ -1184,7 +1184,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_block_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_block_expression(&mut self) -> Result<(AST, TokenInfo), Error> {
         match self.peek().cloned() {
             Some(Token::SymbolToken {
                 symbol: Symbols::CurlyBracketOpen,
@@ -1195,7 +1195,7 @@ impl<'a> Parser<'a> {
 
                 self.advance();
                 self.consume_optional_whitespace();
-                let mut statements: Vec<Either> = Vec::new();
+                let mut statements: Vec<AST> = Vec::new();
                 let mut last_statement_semicolon = false;
                 loop {
                     match self.peek().cloned() {
@@ -1210,20 +1210,17 @@ impl<'a> Parser<'a> {
                             match statements.last() {
                                 Some(last_statement) if !last_statement_semicolon => {
                                     let tipe = last_statement.tipe().clone();
-                                    return Ok((
-                                        Either::BlockStatement(statements, tipe),
-                                        token_info,
-                                    ));
+                                    return Ok((AST::BlockStatement(statements, tipe), token_info));
                                 }
                                 Some(_) => {
                                     return Ok((
-                                        Either::BlockStatement(statements, LanguageType::Void),
+                                        AST::BlockStatement(statements, LanguageType::Void),
                                         token_info,
                                     ));
                                 }
                                 None => {
                                     return Ok((
-                                        Either::BlockStatement(statements, LanguageType::Void),
+                                        AST::BlockStatement(statements, LanguageType::Void),
                                         token_info,
                                     ));
                                 }
@@ -1246,7 +1243,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_identifier_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_identifier_expression(&mut self) -> Result<(AST, TokenInfo), Error> {
         match self.peek().cloned() {
             Some(Token::IdentifierToken { lexeme, token_info }) => {
                 // println!("debug in parse_literal {:?}", var_name);
@@ -1265,7 +1262,7 @@ impl<'a> Parser<'a> {
             _ => self.parse_number_literal(),
         }
     }
-    fn parse_number_literal(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_number_literal(&mut self) -> Result<(AST, TokenInfo), Error> {
         match self.peek().cloned() {
             Some(Token::DigitToken { lexeme, token_info }) => {
                 let mut digits = vec![lexeme];
@@ -1303,7 +1300,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Ok((
-                    Either::Number(
+                    AST::Number(
                         digits
                             .into_iter()
                             .map(|d| d.to_string())
@@ -1318,15 +1315,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_literal(&mut self) -> Result<(Either, TokenInfo), Error> {
+    fn parse_literal(&mut self) -> Result<(AST, TokenInfo), Error> {
         match self.peek().cloned() {
             Some(Token::KeywordToken { keyword: Keywords::True, token_info }) => {
                 self.advance();
-                Ok((Either::Bool(true), token_info))
+                Ok((AST::Bool(true), token_info))
             }
             Some(Token::KeywordToken { keyword: Keywords::False, token_info }) => {
                 self.advance();
-                Ok((Either::Bool(false), token_info))
+                Ok((AST::Bool(false), token_info))
             }
 
             Some(token) => Err(Error::SyntaxError(format!(
@@ -1350,15 +1347,15 @@ enum LanguageType {
     Untyped,
 }
 #[derive(Debug)]
-enum Either {
-    WhileStatement(Box<Either>, Box<Either>),
+enum AST {
+    WhileStatement(Box<AST>, Box<AST>),
     LetStatement(Box<LetStatement>),
     AssignmentStatement(Box<AssignmentStatement>),
 
-    IfElseStatement(Box<Either>, Box<Either>, Box<Either>, LanguageType),
+    IfElseStatement(Box<AST>, Box<AST>, Box<AST>, LanguageType),
     BinaryExpression(Box<BinaryExpression>),
     UnaryExpression(Box<UnaryExpression>),
-    BlockStatement(Vec<Either>, LanguageType),
+    BlockStatement(Vec<AST>, LanguageType),
     Identifier(Identifier),
     Number(f64),
     Bool(bool),
@@ -1368,7 +1365,7 @@ enum Either {
     HaltStatement,
 }
 
-impl Either {
+impl AST {
     fn tipe(&self) -> &LanguageType {
         match self {
             Self::Number(_) => &LanguageType::Number,
@@ -1400,13 +1397,13 @@ enum Error {
 
 #[derive(Debug)]
 struct BinaryExpression {
-    left: Either,
-    right: Either,
+    left: AST,
+    right: AST,
     operator: Operators,
 }
 impl BinaryExpression {
-    fn new(left: Either, right: Either, operator: Operators) -> Either {
-        Either::BinaryExpression(Box::new(Self {
+    fn new(left: AST, right: AST, operator: Operators) -> AST {
+        AST::BinaryExpression(Box::new(Self {
             left: left,
             right: right,
             operator: operator,
@@ -1418,12 +1415,12 @@ impl BinaryExpression {
 }
 #[derive(Debug)]
 struct UnaryExpression {
-    val: Either,
+    val: AST,
     operator: Operators,
 }
 impl UnaryExpression {
-    fn new(val: Either, operator: Operators) -> Either {
-        Either::UnaryExpression(Box::new(Self {
+    fn new(val: AST, operator: Operators) -> AST {
+        AST::UnaryExpression(Box::new(Self {
             val: val,
             operator: operator,
         }))
@@ -1436,12 +1433,12 @@ impl UnaryExpression {
 #[derive(Debug)]
 struct AssignmentStatement {
     lvalue: String,
-    rvalue: Either,
+    rvalue: AST,
 }
 
 impl AssignmentStatement {
-    fn new(lvalue: String, rvalue: Either) -> Either {
-        Either::AssignmentStatement(Box::new(Self {
+    fn new(lvalue: String, rvalue: AST) -> AST {
+        AST::AssignmentStatement(Box::new(Self {
             lvalue: lvalue,
             rvalue: rvalue,
         }))
@@ -1453,12 +1450,12 @@ impl AssignmentStatement {
 #[derive(Debug)]
 struct LetStatement {
     lvalue: String,
-    rvalue: Either,
+    rvalue: AST,
 }
 
 impl LetStatement {
-    fn new(lvalue: String, rvalue: Either) -> Either {
-        Either::LetStatement(Box::new(Self {
+    fn new(lvalue: String, rvalue: AST) -> AST {
+        AST::LetStatement(Box::new(Self {
             lvalue: lvalue,
             rvalue: rvalue,
         }))
@@ -1483,8 +1480,8 @@ impl Identifier {
             tipe: tipe,
         }
     }
-    fn new_ast(name: String, block_position: usize, tipe: LanguageType) -> Either {
-        Either::Identifier(Self {
+    fn new_ast(name: String, block_position: usize, tipe: LanguageType) -> AST {
+        AST::Identifier(Self {
             name: name,
             block_position: block_position,
             tipe: tipe,
@@ -1496,7 +1493,7 @@ impl Identifier {
     fn clone(&self) -> Identifier {
         Self::new(&self.name, self.block_position, self.tipe)
     }
-    fn clone_to_ast(&self) -> Either {
+    fn clone_to_ast(&self) -> AST {
         Self::new_ast(self.name.to_string(), self.block_position, self.tipe)
     }
 }
@@ -1611,13 +1608,13 @@ impl Interpreter {
         }
     }
 
-    fn calculate_statement(&mut self, statement: &Either) -> InternalDataStucture {
+    fn calculate_statement(&mut self, statement: &AST) -> InternalDataStucture {
         match statement {
-            Either::Number(val) => InternalDataStucture::Number(*val),
+            AST::Number(val) => InternalDataStucture::Number(*val),
 
-            Either::Bool(val) => InternalDataStucture::Bool(*val),
+            AST::Bool(val) => InternalDataStucture::Bool(*val),
 
-            Either::BinaryExpression(boxed_expression) => match &**boxed_expression {
+            AST::BinaryExpression(boxed_expression) => match &**boxed_expression {
                 BinaryExpression {
                     left,
                     right,
@@ -1628,7 +1625,7 @@ impl Interpreter {
                     *operator,
                 ),
             },
-            Either::UnaryExpression(boxed_expression) => match &**boxed_expression {
+            AST::UnaryExpression(boxed_expression) => match &**boxed_expression {
                 UnaryExpression { val, operator } => {
                     InternalDataStucture::__match_unary_operation__(
                         self.calculate_statement(&val),
@@ -1636,14 +1633,14 @@ impl Interpreter {
                     )
                 }
             },
-            Either::LetStatement(boxed_let_statement) => match &**boxed_let_statement {
+            AST::LetStatement(boxed_let_statement) => match &**boxed_let_statement {
                 LetStatement { lvalue, rvalue } => {
                     let return_val = self.calculate_statement(&rvalue);
                     self.environment.insert_new(lvalue.clone(), return_val);
                     InternalDataStucture::Void
                 }
             },
-            Either::AssignmentStatement(boxed_assignment_statement) => {
+            AST::AssignmentStatement(boxed_assignment_statement) => {
                 match &**boxed_assignment_statement {
                     AssignmentStatement { lvalue, rvalue } => {
                         let return_val = self.calculate_statement(&rvalue);
@@ -1652,11 +1649,9 @@ impl Interpreter {
                     }
                 }
             }
-            Either::Identifier(identifier) => {
-                self.environment.get(&identifier.name).unwrap().clone()
-            }
+            AST::Identifier(identifier) => self.environment.get(&identifier.name).unwrap().clone(),
 
-            Either::BlockStatement(statements, tipe) => {
+            AST::BlockStatement(statements, tipe) => {
                 let mut result = InternalDataStucture::Void;
                 self.environment.create_child();
                 for statement in statements {
@@ -1669,7 +1664,7 @@ impl Interpreter {
                 }
             }
 
-            Either::WhileStatement(condition, block_statement) => {
+            AST::WhileStatement(condition, block_statement) => {
                 let mut result = InternalDataStucture::Void;
                 loop {
                     match self.calculate_statement(condition) {
@@ -1682,7 +1677,7 @@ impl Interpreter {
                 }
                 result
             }
-            Either::IfElseStatement(condition, if_block_statement, else_block_statement, _) => {
+            AST::IfElseStatement(condition, if_block_statement, else_block_statement, _) => {
                 let result;
                 match self.calculate_statement(condition) {
                     InternalDataStucture::Bool(b) if b == true => {
@@ -1695,8 +1690,8 @@ impl Interpreter {
                 }
                 result
             }
-            Either::Placeholder(tipe) => InternalDataStucture::Void,
-            Either::HaltStatement => InternalDataStucture::Void,
+            AST::Placeholder(tipe) => InternalDataStucture::Void,
+            AST::HaltStatement => InternalDataStucture::Void,
         }
     }
 
@@ -1704,7 +1699,7 @@ impl Interpreter {
         &mut self,
         input: &str,
         previous_identifiers: Option<Vec<Identifier>>,
-    ) -> Result<(Vec<Either>, Option<Vec<Identifier>>), Error> {
+    ) -> Result<(Vec<AST>, Option<Vec<Identifier>>), Error> {
         let mut tokenizer = Tokenizer::new(&input);
         let tokens = tokenizer.tokenize();
 
