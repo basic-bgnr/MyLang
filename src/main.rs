@@ -1,4 +1,6 @@
-use std::{collections::HashMap, format, io::Write, println, unimplemented, unreachable, vec};
+use std::{
+    collections::HashMap, format, io::Write, println, rc::Rc, unimplemented, unreachable, vec,
+};
 
 fn main() {
     let prompt = "
@@ -22,7 +24,7 @@ fn main() {
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
-enum KeywordToken {
+enum Keywords {
     Let,
     True,
     False,
@@ -30,8 +32,8 @@ enum KeywordToken {
     If,
     Else,
 }
-impl KeywordToken {
-    fn get_all() -> [KeywordToken; 6] {
+impl Keywords {
+    fn get_all() -> [Keywords; 6] {
         [
             Self::Let,
             Self::True,
@@ -41,7 +43,7 @@ impl KeywordToken {
             Self::Else,
         ]
     }
-    fn value(&self) -> &str {
+    fn lexeme(&self) -> &str {
         match self {
             Self::Let => "let",
             Self::True => "true",
@@ -51,13 +53,10 @@ impl KeywordToken {
             Self::Else => "else",
         }
     }
-    fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
-        check_with.iter().collect::<String>() == self.value()
-    }
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
-enum SymbolToken {
+enum Symbols {
     SmallBracketOpen,
     SmallBracketClose,
     Dot,
@@ -67,8 +66,8 @@ enum SymbolToken {
     CurlyBracketOpen,
     CurlyBracketClose,
 }
-impl SymbolToken {
-    fn get_all() -> [SymbolToken; 7] {
+impl Symbols {
+    fn get_all() -> [Symbols; 7] {
         [
             Self::SmallBracketOpen,
             Self::SmallBracketClose,
@@ -80,7 +79,7 @@ impl SymbolToken {
             Self::CurlyBracketClose,
         ]
     }
-    fn value(&self) -> &str {
+    fn lexeme(&self) -> &str {
         match self {
             Self::SmallBracketOpen => "(",
             Self::SmallBracketClose => ")",
@@ -92,12 +91,9 @@ impl SymbolToken {
             Self::CurlyBracketClose => "}",
         }
     }
-    fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
-        check_with.iter().collect::<String>() == self.value()
-    }
 }
 #[derive(PartialEq, Debug, Clone, Copy)]
-enum OperatorToken {
+enum Operators {
     PLUS,
     MINUS,
     STAR,
@@ -112,8 +108,8 @@ enum OperatorToken {
     GREATER_THAN,
     EQUAL_TO,
 }
-impl OperatorToken {
-    fn get_all() -> [OperatorToken; 10] {
+impl Operators {
+    fn get_all() -> [Operators; 10] {
         [
             Self::PLUS,
             Self::MINUS,
@@ -127,7 +123,7 @@ impl OperatorToken {
             Self::EQUAL_TO,
         ]
     }
-    fn value(&self) -> &str {
+    fn lexeme(&self) -> &str {
         match self {
             Self::PLUS => "+",
             Self::MINUS => "-",
@@ -141,7 +137,7 @@ impl OperatorToken {
             Self::EQUAL_TO => "==",
         }
     }
-    //output type after application of operator
+    // output type after application of operator
     fn tipe(&self) -> &LanguageType {
         match self {
             Self::PLUS | Self::MINUS | Self::STAR | Self::DIVIDE => &LanguageType::Number,
@@ -154,67 +150,92 @@ impl OperatorToken {
         }
     }
     fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
-        check_with.iter().collect::<String>() == self.value()
+        check_with.iter().collect::<String>() == self.lexeme()
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
-enum Token<'a> {
-    Digit(&'a char, TokenInfo),
-    Alphabet(&'a char, TokenInfo),
-    Identifier(&'a [char], TokenInfo),
+#[derive(PartialEq, Debug, Clone)]
+enum Token {
+    DigitToken {
+        lexeme: Rc<str>,
+        token_info: TokenInfo,
+    },
+    AlphabetToken {
+        lexeme: Rc<str>,
+        token_info: TokenInfo,
+    },
+    IdentifierToken {
+        lexeme: Rc<str>,
+        token_info: TokenInfo,
+    },
+    OperatorToken {
+        operator: Operators,
+        token_info: TokenInfo,
+    },
+    SymbolToken {
+        symbol: Symbols,
+        token_info: TokenInfo,
+    },
+    KeywordToken {
+        keyword: Keywords,
+        token_info: TokenInfo,
+    },
 
-    Operator(OperatorToken, TokenInfo),
-    Symbol(SymbolToken, TokenInfo),
-
-    Keyword(KeywordToken, TokenInfo),
-
-    WhiteSpace(TokenInfo),
-    NewLine(TokenInfo),
-
-    EOF(TokenInfo),
-
-    Alphanumeric(&'a [char]),
+    WhiteSpaceToken {
+        token_info: TokenInfo,
+    },
+    NewLineToken {
+        token_info: TokenInfo,
+    },
+    EOFToken {
+        token_info: TokenInfo,
+    },
 }
-impl<'a> Token<'a> {
+impl Token {
     fn get_token_info(&self) -> &TokenInfo {
         match self {
-            Self::Digit(_, token_info) => token_info,
-            Self::Alphabet(_, token_info) => token_info,
-            Self::Identifier(_, token_info) => token_info,
-            Self::Operator(_, token_info) => token_info,
-            Self::Symbol(_, token_info) => token_info,
-            Self::Keyword(_, token_info) => token_info,
-            Self::EOF(token_info) => token_info,
+            Self::DigitToken { lexeme, token_info } => &token_info,
+            Self::AlphabetToken { lexeme, token_info } => &token_info,
+            Self::IdentifierToken { lexeme, token_info } => &token_info,
 
-            Self::WhiteSpace(token_info) => token_info,
-            Self::NewLine(token_info) => token_info,
-            Self::Alphanumeric(_) => unreachable!(),
+            Self::OperatorToken {
+                operator,
+                token_info,
+            } => &token_info,
+            Self::SymbolToken { symbol, token_info } => &token_info,
+            Self::KeywordToken {
+                keyword,
+                token_info,
+            } => &token_info,
+
+            Self::WhiteSpaceToken { token_info } => &token_info,
+            Self::NewLineToken { token_info } => &token_info,
+
+            Self::EOFToken { token_info } => &token_info,
         }
     }
-    fn value(&self) -> String {
+    fn value(&self) -> Rc<str> {
         match self {
-            Self::Digit(d, _) => d.to_string(),
-            Self::Alphabet(a, _) => a.to_string(),
-            Self::Identifier(i, _) => i.iter().collect::<String>(),
-            Self::Operator(o, _) => o.value().to_string(),
-            Self::Symbol(s, _) => s.value().to_string(),
-            Self::Keyword(k, _) => k.value().to_string(),
+            Self::DigitToken { lexeme, token_info } => lexeme.clone(),
+            Self::AlphabetToken { lexeme, token_info } => lexeme.clone(),
+            Self::IdentifierToken { lexeme, token_info } => lexeme.clone(),
 
-            Self::WhiteSpace(_) => Token::value_of_white_space().to_string(),
-            Self::NewLine(_) => Token::value_of_new_line().to_string(),
-            Self::Alphanumeric(lst_chr) => lst_chr.iter().collect(),
-            Self::EOF(_) => Token::value_of_eof().to_string(),
+            Self::OperatorToken {
+                operator,
+                token_info,
+            } => operator.lexeme().into(),
+
+            Self::SymbolToken { symbol, token_info } => symbol.lexeme().into(),
+            Self::KeywordToken {
+                keyword,
+                token_info,
+            } => keyword.lexeme().into(),
+
+            Self::WhiteSpaceToken { token_info } => " ".into(),
+            Self::NewLineToken { token_info } => "\n".into(),
+
+            Self::EOFToken { token_info } => "<EOF>".into(),
         }
-    }
-    fn value_of_white_space() -> &'static str {
-        " "
-    }
-    fn value_of_new_line() -> &'static str {
-        "\n"
-    }
-    fn value_of_eof() -> &'static str {
-        "<EOF>"
     }
 }
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -222,20 +243,18 @@ struct TokenInfo {
     line_number: usize,
     column_number: usize,
 }
-struct Tokenizer<'a> {
-    input_string: &'a [char],
+struct Tokenizer {
+    input_string: Rc<str>,
     index: usize,
-    len: usize,
     column_number: usize,
     line_number: usize,
 }
 
-impl<'a> Tokenizer<'a> {
-    fn new(input_string: &'a [char]) -> Self {
+impl Tokenizer {
+    fn new(input_string: &str) -> Self {
         Self {
-            input_string: input_string,
+            input_string: input_string.into(),
             index: 0,
-            len: input_string.len(),
             column_number: 1,
             line_number: 1,
         }
@@ -256,12 +275,8 @@ impl<'a> Tokenizer<'a> {
         self.reset_column();
     }
 
-    fn peek(&self) -> Option<&char> {
-        if self.index < self.len {
-            Some(&self.input_string[self.index])
-        } else {
-            None
-        }
+    fn peek(&self) -> Option<char> {
+        self.input_string.chars().nth(self.index)
     }
 
     fn reset_index_at(&mut self, new_index: usize) {
@@ -273,57 +288,55 @@ impl<'a> Tokenizer<'a> {
         self.column_number = 1;
     }
 
-    fn get_alphanumeric_token(&self, start_index: usize, end_index: usize) -> Option<Token<'a>> {
-        if start_index >= end_index {
-            None
-        } else {
-            Some(Token::Alphanumeric(
-                &self.input_string[start_index..end_index],
-            ))
-        }
-    }
-    fn match_any_in_blob(&mut self, blob: &str) -> Option<Token<'a>> {
+    fn match_any_in_blob(&mut self, blob: &str) -> Option<Rc<str>> {
         let initial = self.index;
         match self.peek() {
-            Some(&chr) if blob.contains(chr) => {
+            Some(chr) if blob.contains(chr) => {
                 self.advance();
-                return self.get_alphanumeric_token(initial, self.index);
+                return Some(self.input_string[initial..self.index].into());
             }
             _ => {
                 return None;
             }
         }
     }
-    fn match_many_in_blob(&mut self, blob: &str) -> Option<Token<'a>> {
+    fn match_many_in_blob(&mut self, blob: &str) -> Option<Rc<str>> {
         let initial_index = self.index;
         loop {
             match self.peek() {
-                Some(&chr) if blob.contains(chr) => self.advance(),
+                Some(chr) if blob.contains(chr) => self.advance(),
                 _ => break,
             }
         }
-        self.get_alphanumeric_token(initial_index, self.index)
+        if initial_index != self.index {
+            Some(self.input_string[initial_index..self.index].into())
+        } else {
+            None
+        }
     }
-    fn match_exact_in_blob(&mut self, blob: &str) -> Option<Token<'a>> {
+    fn match_exact_in_blob(&mut self, blob: &str) -> Option<Rc<str>> {
         let initial_index = self.index;
         for c in blob.chars() {
             match self.peek() {
-                Some(&chr) if chr == c => self.advance(),
+                Some(chr) if chr == c => self.advance(),
                 _ => {
                     self.reset_index_at(initial_index);
                     return None;
                 }
             }
         }
-        self.get_alphanumeric_token(initial_index, self.index)
+        Some(self.input_string[initial_index..self.index].into())
     }
 
-    fn match_operator(&mut self) -> Option<Token<'a>> {
+    fn match_operator(&mut self) -> Option<Token> {
         let token_info = self.get_token_info();
-        for operator_token in OperatorToken::get_all() {
-            match self.match_exact_in_blob(operator_token.value()) {
-                Some(Token::Alphanumeric(a)) if operator_token.is_equal(a) => {
-                    return Some(Token::Operator(operator_token, token_info));
+        for operator in Operators::get_all() {
+            match self.match_exact_in_blob(operator.lexeme()) {
+                Some(_) => {
+                    return Some(Token::OperatorToken {
+                        operator,
+                        token_info,
+                    });
                 }
                 _ => {
                     continue;
@@ -332,12 +345,12 @@ impl<'a> Tokenizer<'a> {
         }
         None
     }
-    fn match_symbol(&mut self) -> Option<Token<'a>> {
+    fn match_symbol(&mut self) -> Option<Token> {
         let token_info = self.get_token_info();
-        for symbol_token in SymbolToken::get_all() {
-            match self.match_exact_in_blob(symbol_token.value()) {
-                Some(Token::Alphanumeric(a)) if symbol_token.is_equal(a) => {
-                    return Some(Token::Symbol(symbol_token, token_info));
+        for symbol in Symbols::get_all() {
+            match self.match_exact_in_blob(symbol.lexeme()) {
+                Some(_) => {
+                    return Some(Token::SymbolToken { symbol, token_info });
                 }
                 _ => {
                     continue;
@@ -346,86 +359,69 @@ impl<'a> Tokenizer<'a> {
         }
         None
     }
-    fn match_whitespace(&mut self) -> Option<Token<'a>> {
+    fn match_whitespace(&mut self) -> Option<Token> {
         let token_info = self.get_token_info();
-        match self.match_many_in_blob(&Token::value_of_white_space()) {
-            Some(_) => Some(Token::WhiteSpace(token_info)),
+        match self.match_many_in_blob(" ") {
+            Some(_) => Some(Token::WhiteSpaceToken { token_info }),
             _ => None,
         }
     }
-    fn match_new_lines(&mut self) -> Option<Token<'a>> {
+    fn match_new_lines(&mut self) -> Option<Token> {
         let token_info = self.get_token_info();
-        match self.match_many_in_blob(&Token::value_of_new_line()) {
-            Some(new_lines) => {
-                let no_of_new_lines = new_lines.value().len();
+        match self.match_many_in_blob("\n") {
+            Some(match_string) => {
+                let no_of_new_lines = match_string.len();
                 self.break_lines(no_of_new_lines);
 
-                Some(Token::NewLine(token_info))
+                Some(Token::NewLineToken { token_info })
             }
             _ => None,
         }
     }
 
-    fn match_digit(&mut self) -> Option<Token<'a>> {
+    fn match_digit(&mut self) -> Option<Token> {
         let token_info = self.get_token_info();
         match self.match_any_in_blob("0123456789") {
-            Some(Token::Alphanumeric(chr)) => Some(Token::Digit(chr.first().unwrap(), token_info)),
+            Some(lexeme) => Some(Token::DigitToken { lexeme, token_info }),
             _ => None,
         }
     }
-    fn match_alphabet(&mut self) -> Option<Token<'a>> {
+    fn match_alphabet(&mut self) -> Option<Token> {
         let blob = ('a'..='z').chain('A'..='Z').collect::<String>();
         let token_info = self.get_token_info();
         match self.match_any_in_blob(&blob) {
-            Some(Token::Alphanumeric(chr)) => {
-                Some(Token::Alphabet(chr.first().unwrap(), token_info))
-            }
+            Some(lexeme) => Some(Token::AlphabetToken { lexeme, token_info }),
             _ => None,
         }
     }
-    fn match_identifier(&mut self) -> Option<Token<'a>> {
+    fn match_identifier_or_keyword(&mut self) -> Option<Token> {
         let blob = ('a'..='z').chain('A'..='Z').collect::<String>();
         let token_info = self.get_token_info();
         match self.match_many_in_blob(&blob) {
-            Some(Token::Alphanumeric(chr)) => Some(Token::Identifier(chr, token_info)),
+            Some(lexeme) => {
+                for keyword in Keywords::get_all().into_iter() {
+                    if lexeme == keyword.lexeme().into() {
+                        return Some(Token::KeywordToken {
+                            keyword,
+                            token_info,
+                        });
+                    }
+                }
+                Some(Token::IdentifierToken { lexeme, token_info })
+            }
             _ => None,
         }
-    }
-    fn match_keyword(&mut self) -> Option<Token<'a>> {
-        let token_info = self.get_token_info();
-        let initial_index = self.index;
-        for keyword_token in KeywordToken::get_all() {
-            match self.match_exact_in_blob(keyword_token.value()) {
-                Some(Token::Alphanumeric(_)) => match self.match_alphabet() {
-                    Some(_) => {
-                        self.reset_index_at(initial_index);
-                        return None;
-                    }
-                    None => {
-                        return Some(Token::Keyword(keyword_token, token_info));
-                    }
-                },
-                _ => {
-                    continue;
-                }
-            }
-        }
-        None
     }
 
     fn tokenize(&mut self) -> Result<Vec<Token>, Vec<String>> {
         let mut tokens = Vec::new();
         let mut tokenization_errors = vec![];
         while self.peek().is_some() {
-            if let Some(token) = self.match_keyword() {
+            if let Some(token) = self.match_identifier_or_keyword() {
                 tokens.push(token);
                 continue;
             }
             if let Some(token) = self.match_digit() {
-                tokens.push(token);
-                continue;
-            }
-            if let Some(token) = self.match_identifier() {
                 tokens.push(token);
                 continue;
             }
@@ -456,7 +452,7 @@ impl<'a> Tokenizer<'a> {
             Err(tokenization_errors)
         } else {
             let token_info = self.get_token_info();
-            tokens.push(Token::EOF(token_info));
+            tokens.push(Token::EOFToken { token_info });
             // println!("{:?}", tokens);
             Result::Ok(tokens)
         }
@@ -464,7 +460,7 @@ impl<'a> Tokenizer<'a> {
 }
 
 struct Parser<'a> {
-    tokens: &'a [Token<'a>],
+    tokens: &'a [Token],
     index: usize,
     back_track_index: usize,
     len: usize,
@@ -474,7 +470,7 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn new(tokens: &'a [Token<'a>]) -> Self {
+    fn new(tokens: &'a [Token]) -> Self {
         Parser {
             tokens: tokens,
             index: 0,
@@ -513,10 +509,6 @@ impl<'a> Parser<'a> {
 
     fn back_track(&mut self) {
         self.index = self.back_track_index;
-    }
-
-    fn reset_index_at(&mut self, index: usize) {
-        self.index = index;
     }
 
     fn get_identifiers_list(self) -> Option<Vec<Identifier>> {
@@ -558,7 +550,7 @@ impl<'a> Parser<'a> {
     ) {
         match self.identifiers_list.as_deref_mut() {
             Some(identifiers) => {
-                for mut identifier in identifiers.iter_mut().rev() {
+                for identifier in identifiers.iter_mut().rev() {
                     if identifier.name == identifier_to_modify.name {
                         *identifier = Identifier::new(
                             &identifier.name,
@@ -582,7 +574,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn peek(&self) -> Option<&Token<'a>> {
+    fn peek(&self) -> Option<&Token> {
         if self.index < self.len {
             Some(&self.tokens[self.index])
         } else {
@@ -591,19 +583,26 @@ impl<'a> Parser<'a> {
     }
 
     fn consume_optional_semicolon(&mut self) -> bool {
-        if let Some(Token::Symbol(SymbolToken::SemiColon, _)) = self.peek() {
-            self.advance();
-            return true;
+        match self.peek() {
+            Some(Token::SymbolToken {
+                symbol: Symbols::SemiColon,
+                token_info,
+            }) => {
+                self.advance();
+                true
+            }
+            None | Some(_) => false,
         }
-        false
     }
 
     fn consume_optional_whitespace(&mut self) -> bool {
-        if let Some(Token::WhiteSpace(_)) = self.peek() {
-            self.advance();
-            return true;
+        match self.peek() {
+            Some(Token::WhiteSpaceToken { token_info }) => {
+                self.advance();
+                true
+            }
+            None | Some(_) => false,
         }
-        false
     }
 
     fn parse(&mut self) -> Result<Vec<Either>, Error> {
@@ -651,7 +650,7 @@ impl<'a> Parser<'a> {
     }
     fn parse_halt_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
         match self.peek().cloned() {
-            Some(Token::EOF(token_info)) => {
+            Some(Token::EOFToken { token_info }) => {
                 self.advance();
                 Ok((Either::HaltStatement, token_info))
             }
@@ -666,7 +665,10 @@ impl<'a> Parser<'a> {
     fn parse_while_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
         self.consume_optional_whitespace();
         match self.peek().cloned() {
-            Some(Token::Keyword(keyword, token_info_while)) if keyword == KeywordToken::While => {
+            Some(Token::KeywordToken {
+                keyword: Keywords::While,
+                token_info,
+            }) => {
                 self.advance();
                 self.consume_optional_whitespace();
                 let (condition_expression, token_info) = self.parse_logical_term()?;
@@ -679,7 +681,7 @@ impl<'a> Parser<'a> {
                             Box::new(condition_expression),
                             Box::new(block_expression),
                         ),
-                        token_info_while,
+                        token_info,
                     ))
                 } else {
                     Err(Error::ParseError(format!(
@@ -700,19 +702,21 @@ impl<'a> Parser<'a> {
     fn parse_let_statement(&mut self) -> Result<(Either, TokenInfo), Error> {
         self.consume_optional_whitespace();
         match self.peek().cloned() {
-            Some(Token::Keyword(keyword, token_info))
-                if keyword.value() == KeywordToken::Let.value() =>
-            {
+            Some(Token::KeywordToken {
+                keyword: Keywords::Let,
+                token_info,
+            }) => {
                 self.advance();
                 self.advance(); //consume whitespace
                 match self.peek().cloned() {
-                    Some(identifier @ Token::Identifier(_, token_info)) => {
+                    Some(Token::IdentifierToken { lexeme, token_info }) => {
                         self.advance();
                         self.consume_optional_whitespace();
                         match self.peek().cloned() {
-                            Some(Token::Symbol(symbol, _))
-                                if symbol.value() == SymbolToken::Equal.value() =>
-                            {
+                            Some(Token::SymbolToken {
+                                symbol: Symbols::Equal,
+                                token_info,
+                            }) => {
                                 self.advance();
                                 self.consume_optional_whitespace();
                                 let (term, token_info) = self.parse_expression()?;
@@ -726,13 +730,13 @@ impl<'a> Parser<'a> {
                                     ))),
                                     _ => {
                                         self.push_identifier(Identifier::new(
-                                            &identifier.value(),
+                                            &lexeme,
                                             self.get_block_position(),
                                             *tipe,
                                         ));
 
                                         Ok((
-                                            LetStatement::new(identifier.value(), term),
+                                            LetStatement::new(lexeme.to_string(), term),
                                             token_info,
                                         ))
                                     }
@@ -740,14 +744,14 @@ impl<'a> Parser<'a> {
                             }
                             Some(token) => {
                                 self.push_identifier(Identifier::new(
-                                    &identifier.value(),
+                                    &lexeme,
                                     self.get_block_position(),
                                     LanguageType::Void,
                                 ));
 
                                 Ok((
                                     LetStatement::new(
-                                        identifier.value(),
+                                        lexeme.to_string(),
                                         Either::Placeholder(LanguageType::Untyped),
                                     ),
                                     token_info,
@@ -787,14 +791,13 @@ impl<'a> Parser<'a> {
         self.consume_optional_whitespace();
         self.remember_index();
         match self.peek().cloned() {
-            Some(identifier_token @ Token::Identifier(_, token_info)) => {
-                match self.get_reference_to_identifier(&identifier_token.value()) {
+            Some(Token::IdentifierToken { lexeme, token_info }) => {
+                match self.get_reference_to_identifier(&lexeme) {
                     Some(identifier) => {
                         self.advance();
                         self.consume_optional_whitespace();
                         match self.peek().cloned() {
-                            Some(Token::Symbol(symbol, _))
-                                if symbol.value() == SymbolToken::Equal.value() =>
+                            Some(Token::SymbolToken{symbol: Symbols::Equal, token_info}) =>
                             {
                                 self.advance();
                                 self.consume_optional_whitespace();
@@ -802,7 +805,7 @@ impl<'a> Parser<'a> {
                                 if term.tipe() == identifier.tipe() || identifier.tipe() == &LanguageType::Void{
                                     self.modify_identifier_type(&identifier, *term.tipe());
                                     Ok((
-                                        AssignmentStatement::new(identifier_token.value(), term),
+                                        AssignmentStatement::new(lexeme.to_string(), term),
                                         token_info,
                                     ))
                                 } else {
@@ -829,7 +832,7 @@ impl<'a> Parser<'a> {
                     }
                     None => Err(Error::IdentifierError(format!(
                         "Identifier Error: use of undeclared variable '{}' encountered at line {}, column {}",
-                        identifier_token.value(),
+                        lexeme,
                         token_info.line_number,
                         token_info.column_number
                     ))),
@@ -849,18 +852,15 @@ impl<'a> Parser<'a> {
             Error::ParseError(_) => self.parse_logical_term(),
             Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
         })
-        // .or_else(|e| match e {
-        //     e @ (Error::ParseError(_)
-        //     | Error::TypeError(_)
-        //     | Error::IdentifierError(_)
-        //     | Error::SyntaxError(_)) => Err(e),
-        // })
     }
 
     fn parse_if_else_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
         self.consume_optional_whitespace();
         match self.peek().cloned() {
-            Some(Token::Keyword(keyword, token_info_if)) if keyword == KeywordToken::If => {
+            Some(Token::KeywordToken {
+                keyword: Keywords::If,
+                token_info,
+            }) => {
                 self.advance();
                 self.consume_optional_whitespace();
                 let (condition_expression, token_info) = self.parse_logical_term()?;
@@ -872,7 +872,7 @@ impl<'a> Parser<'a> {
                     self.consume_optional_whitespace();
 
                     match self.peek().cloned(){
-                        Some(Token::Keyword(keyword, token_info_while)) if keyword == KeywordToken::Else => {
+                        Some(Token::KeywordToken{keyword: Keywords::Else, token_info}) => {
                             self.advance();
                             self.consume_optional_whitespace();
 
@@ -880,7 +880,7 @@ impl<'a> Parser<'a> {
                             let else_block_tipe = else_block_expression.tipe();
 
                             if if_block_tipe == *else_block_tipe {
-                                Ok((Either::IfElseStatement(Box::new(condition_expression), Box::new(if_block_expression), Box::new(else_block_expression), if_block_tipe), token_info_if))
+                                Ok((Either::IfElseStatement(Box::new(condition_expression), Box::new(if_block_expression), Box::new(else_block_expression), if_block_tipe), token_info))
                             }else{
 
                                     Err(Error::TypeError(format!( "Type Error: type mismatched of if and else block found at line {}, column {}",
@@ -918,18 +918,16 @@ impl<'a> Parser<'a> {
         let (mut first_expression, token_info) = self.parse_comparison_term()?;
         loop {
             match self.peek().cloned() {
-                Some(Token::Operator(
-                    operator_token @ (OperatorToken::LOGICAL_AND | OperatorToken::LOGICAL_OR),
+                Some(Token::OperatorToken {
+                    operator: operator @ (Operators::LOGICAL_AND | Operators::LOGICAL_OR),
+
                     token_info,
-                )) if first_expression.tipe() == &LanguageType::Boolean => {
+                }) if first_expression.tipe() == &LanguageType::Boolean => {
                     self.advance();
                     let (second_expression, token_info) = self.parse_comparison_term()?;
                     if first_expression.tipe() == second_expression.tipe() {
-                        let expr = BinaryExpression::new(
-                            first_expression,
-                            second_expression,
-                            operator_token,
-                        );
+                        let expr =
+                            BinaryExpression::new(first_expression, second_expression, operator);
                         first_expression = expr;
                         continue;
                     } else {
@@ -939,16 +937,16 @@ impl<'a> Parser<'a> {
                         )));
                     }
                 }
-                Some(Token::Operator(
-                    OperatorToken::LOGICAL_AND | OperatorToken::LOGICAL_OR,
+                Some(Token::OperatorToken {
+                    operator: Operators::LOGICAL_AND | Operators::LOGICAL_OR,
                     token_info,
-                )) if first_expression.tipe() == &LanguageType::Number => {
+                }) if first_expression.tipe() == &LanguageType::Number => {
                     return Err(Error::TypeError(format!(
                         "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )));
                 }
-                Some(Token::WhiteSpace(_)) => {
+                Some(Token::WhiteSpaceToken { token_info }) => {
                     self.advance();
                     continue;
                 }
@@ -963,20 +961,17 @@ impl<'a> Parser<'a> {
 
         loop {
             match self.peek().cloned() {
-                Some(Token::Operator(
-                    operator_token @ (OperatorToken::LESS_THAN
-                    | OperatorToken::GREATER_THAN
-                    | OperatorToken::EQUAL_TO),
+                Some(Token::OperatorToken {
+                    operator:
+                        operator
+                        @ (Operators::LESS_THAN | Operators::GREATER_THAN | Operators::EQUAL_TO),
                     token_info,
-                )) if first_expression.tipe() == &LanguageType::Number => {
+                }) if first_expression.tipe() == &LanguageType::Number => {
                     self.advance();
                     let (second_expression, token_info) = self.parse_term()?;
                     if first_expression.tipe() == second_expression.tipe() {
-                        let expr = BinaryExpression::new(
-                            first_expression,
-                            second_expression,
-                            operator_token,
-                        );
+                        let expr =
+                            BinaryExpression::new(first_expression, second_expression, operator);
                         first_expression = expr;
                         continue;
                     } else {
@@ -986,17 +981,15 @@ impl<'a> Parser<'a> {
                         )));
                     }
                 }
-                Some(Token::Operator(operator_token @ OperatorToken::EQUAL_TO, token_info))
-                    if first_expression.tipe() == &LanguageType::Boolean =>
-                {
+                Some(Token::OperatorToken {
+                    operator: operator @ Operators::EQUAL_TO,
+                    token_info,
+                }) if first_expression.tipe() == &LanguageType::Boolean => {
                     self.advance();
                     let (second_expression, token_info) = self.parse_term()?;
                     if first_expression.tipe() == second_expression.tipe() {
-                        let expr = BinaryExpression::new(
-                            first_expression,
-                            second_expression,
-                            operator_token,
-                        );
+                        let expr =
+                            BinaryExpression::new(first_expression, second_expression, operator);
                         first_expression = expr;
                         continue;
                     } else {
@@ -1006,16 +999,16 @@ impl<'a> Parser<'a> {
                         )));
                     }
                 }
-                Some(Token::Operator(
-                    operator_token @ (OperatorToken::LESS_THAN | OperatorToken::GREATER_THAN),
+                Some(Token::OperatorToken {
+                    operator: operator @ (Operators::LESS_THAN | Operators::GREATER_THAN),
                     token_info,
-                )) if first_expression.tipe() == &LanguageType::Boolean => {
+                }) if first_expression.tipe() == &LanguageType::Boolean => {
                     return Err(Error::TypeError(format!(
                         "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )));
                 }
-                Some(Token::WhiteSpace(_)) => {
+                Some(Token::WhiteSpaceToken { token_info }) => {
                     self.advance();
                     continue;
                 }
@@ -1028,18 +1021,15 @@ impl<'a> Parser<'a> {
         let (mut first_expression, token_info) = self.parse_prod()?;
         loop {
             match self.peek().cloned() {
-                Some(Token::Operator(
-                    operator_token @ (OperatorToken::PLUS | OperatorToken::MINUS),
+                Some(Token::OperatorToken {
+                    operator: operator @ (Operators::PLUS | Operators::MINUS),
                     token_info,
-                )) if first_expression.tipe() == &LanguageType::Number => {
+                }) if first_expression.tipe() == &LanguageType::Number => {
                     self.advance();
                     let (second_expression, token_info) = self.parse_prod()?;
                     if first_expression.tipe() == second_expression.tipe() {
-                        let expr = BinaryExpression::new(
-                            first_expression,
-                            second_expression,
-                            operator_token,
-                        );
+                        let expr =
+                            BinaryExpression::new(first_expression, second_expression, operator);
                         first_expression = expr;
                         continue;
                     } else {
@@ -1049,10 +1039,10 @@ impl<'a> Parser<'a> {
                         )));
                     }
                 }
-                Some(Token::Operator(
-                    operator_token @ (OperatorToken::PLUS | OperatorToken::MINUS),
+                Some(Token::OperatorToken {
+                    operator: Operators::PLUS | Operators::MINUS,
                     token_info,
-                )) if first_expression.tipe() == &LanguageType::Boolean
+                }) if first_expression.tipe() == &LanguageType::Boolean
                     || first_expression.tipe() == &LanguageType::Void =>
                 {
                     return Err(Error::TypeError(format!(
@@ -1060,7 +1050,7 @@ impl<'a> Parser<'a> {
                         token_info.line_number, token_info.column_number
                     )));
                 }
-                Some(Token::WhiteSpace(_)) => {
+                Some(Token::WhiteSpaceToken { token_info }) => {
                     self.advance();
                     continue;
                 }
@@ -1075,18 +1065,15 @@ impl<'a> Parser<'a> {
         let (mut first_expression, token_info) = self.parse_unary()?;
         loop {
             match self.peek().cloned() {
-                Some(Token::Operator(
-                    operator_token @ (OperatorToken::STAR | OperatorToken::DIVIDE),
+                Some(Token::OperatorToken {
+                    operator: operator @ (Operators::STAR | Operators::DIVIDE),
                     token_info,
-                )) if first_expression.tipe() == &LanguageType::Number => {
+                }) if first_expression.tipe() == &LanguageType::Number => {
                     self.advance();
                     let (second_expression, token_info) = self.parse_unary()?;
                     if first_expression.tipe() == second_expression.tipe() {
-                        let expr = BinaryExpression::new(
-                            first_expression,
-                            second_expression,
-                            operator_token,
-                        );
+                        let expr =
+                            BinaryExpression::new(first_expression, second_expression, operator);
                         first_expression = expr;
                         continue;
                     } else {
@@ -1096,10 +1083,10 @@ impl<'a> Parser<'a> {
                         )));
                     }
                 }
-                Some(Token::Operator(
-                    operator_token @ (OperatorToken::STAR | OperatorToken::DIVIDE),
+                Some(Token::OperatorToken {
+                    operator: operator @ (Operators::STAR | Operators::DIVIDE),
                     token_info,
-                )) if first_expression.tipe() == &LanguageType::Boolean
+                }) if first_expression.tipe() == &LanguageType::Boolean
                     || first_expression.tipe() == &LanguageType::Void =>
                 {
                     return Err(Error::TypeError(format!(
@@ -1108,7 +1095,7 @@ impl<'a> Parser<'a> {
                     )));
                 }
 
-                Some(Token::WhiteSpace(_)) => {
+                Some(Token::WhiteSpaceToken { token_info }) => {
                     self.advance();
                     continue;
                 }
@@ -1121,10 +1108,10 @@ impl<'a> Parser<'a> {
 
     fn parse_unary(&mut self) -> Result<(Either, TokenInfo), Error> {
         match self.peek().cloned() {
-            Some(Token::Operator(
-                operator @ (OperatorToken::PLUS | OperatorToken::MINUS),
+            Some(Token::OperatorToken {
+                operator: operator @ (Operators::PLUS | Operators::MINUS),
                 token_info,
-            )) => {
+            }) => {
                 self.advance();
                 let (expr, token_info) = self.parse_unary()?;
                 let tipe = expr.tipe().clone();
@@ -1138,7 +1125,10 @@ impl<'a> Parser<'a> {
                     )))
                 }
             }
-            Some(Token::Operator(operator @ OperatorToken::LOGICAL_NOT, token_info)) => {
+            Some(Token::OperatorToken {
+                operator: operator @ Operators::LOGICAL_NOT,
+                token_info,
+            }) => {
                 self.advance();
                 let (expr, token_info) = self.parse_unary()?;
                 let tipe = expr.tipe().clone();
@@ -1152,7 +1142,7 @@ impl<'a> Parser<'a> {
                     )))
                 }
             }
-            Some(Token::WhiteSpace(_)) => {
+            Some(Token::WhiteSpaceToken { token_info }) => {
                 self.advance();
                 self.parse_unary()
             }
@@ -1162,15 +1152,21 @@ impl<'a> Parser<'a> {
 
     fn parse_bracket(&mut self) -> Result<(Either, TokenInfo), Error> {
         match self.peek().cloned() {
-            Some(Token::Symbol(SymbolToken::SmallBracketOpen, token_info)) => {
+            Some(Token::SymbolToken {
+                symbol: Symbols::SmallBracketOpen,
+                token_info,
+            }) => {
                 self.advance();
                 let (val, token_info) = self.parse_expression()?;
                 match self.peek().cloned() {
-                    Some(Token::Symbol(SymbolToken::SmallBracketClose, _)) => {
+                    Some(Token::SymbolToken {
+                        symbol: Symbols::SmallBracketClose,
+                        token_info,
+                    }) => {
                         self.advance();
                         Ok((val, token_info))
                     }
-                    Some(Token::WhiteSpace(_)) => {
+                    Some(Token::WhiteSpaceToken { token_info }) => {
                         self.advance();
                         self.parse_bracket()
                     }
@@ -1190,7 +1186,10 @@ impl<'a> Parser<'a> {
 
     fn parse_block_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
         match self.peek().cloned() {
-            Some(Token::Symbol(SymbolToken::CurlyBracketOpen, token_info)) => {
+            Some(Token::SymbolToken {
+                symbol: Symbols::CurlyBracketOpen,
+                token_info,
+            }) => {
                 // println!("debug curly: {:?}", "here");
                 self.increment_block_position();
 
@@ -1200,7 +1199,10 @@ impl<'a> Parser<'a> {
                 let mut last_statement_semicolon = false;
                 loop {
                     match self.peek().cloned() {
-                        Some(Token::Symbol(SymbolToken::CurlyBracketClose, _)) => {
+                        Some(Token::SymbolToken {
+                            symbol: Symbols::CurlyBracketClose,
+                            token_info,
+                        }) => {
                             self.decrement_block_position();
 
                             self.advance();
@@ -1246,15 +1248,15 @@ impl<'a> Parser<'a> {
 
     fn parse_identifier_expression(&mut self) -> Result<(Either, TokenInfo), Error> {
         match self.peek().cloned() {
-            Some(Token::Identifier(var_name, token_info)) => {
+            Some(Token::IdentifierToken { lexeme, token_info }) => {
                 // println!("debug in parse_literal {:?}", var_name);
                 self.advance();
-                let var_name = var_name.iter().collect::<String>();
-                match self.get_reference_to_identifier(&var_name) {
+                let identifier_name = lexeme;
+                match self.get_reference_to_identifier(&identifier_name) {
                     Some(identifier) => Ok((identifier.clone_to_ast(), token_info)),
                     None => Err(Error::IdentifierError(format!(
                 "Identifier Error: No variable named '{}' found in scope at line {}, column {}",
-                var_name,
+                identifier_name,
                 token_info.line_number,
                 token_info.column_number,
             ))),
@@ -1265,30 +1267,34 @@ impl<'a> Parser<'a> {
     }
     fn parse_number_literal(&mut self) -> Result<(Either, TokenInfo), Error> {
         match self.peek().cloned() {
-            Some(Token::Digit(first_digit, digit_token)) => {
-                let mut digits = vec![first_digit];
+            Some(Token::DigitToken { lexeme, token_info }) => {
+                let mut digits = vec![lexeme];
                 let mut num_of_dot = 0;
-                let mut token_info = digit_token;
+                let mut digit_token_info = token_info;
                 self.advance();
                 loop {
                     match self.peek().cloned() {
-                        Some(Token::Symbol(SymbolToken::Dot, _)) if num_of_dot < 1 => {
+                        Some(Token::SymbolToken {
+                            symbol: Symbols::Dot,
+                            token_info,
+                        }) if num_of_dot < 1 => {
                             self.advance();
                             num_of_dot += 1;
-                            digits.push(&'.');
+                            digits.push(".".into());
                         }
-                        Some(Token::Symbol(SymbolToken::Dot, token_info_symbol))
-                            if num_of_dot >= 1 =>
-                        {
+                        Some(Token::SymbolToken {
+                            symbol: Symbols::Dot,
+                            token_info,
+                        }) if num_of_dot >= 1 => {
                             return Err(Error::SyntaxError(format!(
                                 "Syntax Error: Extra decimal(.) encountered at line {}, column {}",
-                                token_info_symbol.line_number, token_info_symbol.column_number,
+                                token_info.line_number, token_info.column_number,
                             )));
                         }
-                        Some(Token::Digit(val, digit_token)) => {
+                        Some(Token::DigitToken { lexeme, token_info }) => {
                             self.advance();
-                            token_info = digit_token;
-                            digits.push(val);
+                            digit_token_info = token_info;
+                            digits.push(lexeme);
                         }
 
                         _ => {
@@ -1300,11 +1306,12 @@ impl<'a> Parser<'a> {
                     Either::Number(
                         digits
                             .into_iter()
+                            .map(|d| d.to_string())
                             .collect::<String>()
                             .parse::<f64>()
                             .unwrap(),
                     ),
-                    digit_token,
+                    digit_token_info,
                 ))
             }
             _ => self.parse_literal(),
@@ -1313,11 +1320,11 @@ impl<'a> Parser<'a> {
 
     fn parse_literal(&mut self) -> Result<(Either, TokenInfo), Error> {
         match self.peek().cloned() {
-            Some(Token::Keyword(KeywordToken::True, token_info)) => {
+            Some(Token::KeywordToken { keyword: Keywords::True, token_info }) => {
                 self.advance();
                 Ok((Either::Bool(true), token_info))
             }
-            Some(Token::Keyword(KeywordToken::False, token_info)) => {
+            Some(Token::KeywordToken { keyword: Keywords::False, token_info }) => {
                 self.advance();
                 Ok((Either::Bool(false), token_info))
             }
@@ -1395,10 +1402,10 @@ enum Error {
 struct BinaryExpression {
     left: Either,
     right: Either,
-    operator: OperatorToken,
+    operator: Operators,
 }
 impl BinaryExpression {
-    fn new(left: Either, right: Either, operator: OperatorToken) -> Either {
+    fn new(left: Either, right: Either, operator: Operators) -> Either {
         Either::BinaryExpression(Box::new(Self {
             left: left,
             right: right,
@@ -1412,10 +1419,10 @@ impl BinaryExpression {
 #[derive(Debug)]
 struct UnaryExpression {
     val: Either,
-    operator: OperatorToken,
+    operator: Operators,
 }
 impl UnaryExpression {
-    fn new(val: Either, operator: OperatorToken) -> Either {
+    fn new(val: Either, operator: Operators) -> Either {
         Either::UnaryExpression(Box::new(Self {
             val: val,
             operator: operator,
@@ -1440,7 +1447,6 @@ impl AssignmentStatement {
         }))
     }
     fn tipe(&self) -> &LanguageType {
-        // self.rvalue.tipe()
         &LanguageType::Void
     }
 }
@@ -1458,7 +1464,6 @@ impl LetStatement {
         }))
     }
     fn tipe(&self) -> &LanguageType {
-        // self.rvalue.tipe()
         &LanguageType::Void
     }
 }
@@ -1505,17 +1510,17 @@ enum InternalDataStucture {
 }
 
 impl InternalDataStucture {
-    fn __match_binary_operation__(left: Self, right: Self, operator: OperatorToken) -> Self {
+    fn __match_binary_operation__(left: Self, right: Self, operator: Operators) -> Self {
         match (left, right) {
             (Self::Number(l), Self::Number(r)) => match operator {
-                OperatorToken::PLUS => Self::Number(l + r),
-                OperatorToken::MINUS => Self::Number(l - r),
-                OperatorToken::STAR => Self::Number(l * r),
-                OperatorToken::DIVIDE => Self::Number(l / r),
+                Operators::PLUS => Self::Number(l + r),
+                Operators::MINUS => Self::Number(l - r),
+                Operators::STAR => Self::Number(l * r),
+                Operators::DIVIDE => Self::Number(l / r),
 
-                OperatorToken::LESS_THAN => Self::Bool(l < r),
-                OperatorToken::GREATER_THAN => Self::Bool(l > r),
-                OperatorToken::EQUAL_TO => Self::Bool(l == r),
+                Operators::LESS_THAN => Self::Bool(l < r),
+                Operators::GREATER_THAN => Self::Bool(l > r),
+                Operators::EQUAL_TO => Self::Bool(l == r),
 
                 _ => {
                     println!("{:?}, {:?}", left, right);
@@ -1524,9 +1529,9 @@ impl InternalDataStucture {
             },
 
             (Self::Bool(l), Self::Bool(r)) => match operator {
-                OperatorToken::LOGICAL_AND => Self::Bool(l && r),
-                OperatorToken::LOGICAL_OR => Self::Bool(l || r),
-                OperatorToken::EQUAL_TO => Self::Bool(l == r),
+                Operators::LOGICAL_AND => Self::Bool(l && r),
+                Operators::LOGICAL_OR => Self::Bool(l || r),
+                Operators::EQUAL_TO => Self::Bool(l == r),
                 _ => {
                     println!("{:?}, {:?}", left, right);
                     unreachable!()
@@ -1539,15 +1544,15 @@ impl InternalDataStucture {
             }
         }
     }
-    fn __match_unary_operation__(val: Self, operator: OperatorToken) -> Self {
+    fn __match_unary_operation__(val: Self, operator: Operators) -> Self {
         match val {
             Self::Number(v) => match operator {
-                OperatorToken::PLUS => Self::Number(v),
-                OperatorToken::MINUS => Self::Number(-v),
+                Operators::PLUS => Self::Number(v),
+                Operators::MINUS => Self::Number(-v),
                 _ => unreachable!(),
             },
             Self::Bool(b) => match operator {
-                OperatorToken::LOGICAL_NOT => Self::Bool(!b),
+                Operators::LOGICAL_NOT => Self::Bool(!b),
                 _ => unreachable!(),
             },
 
@@ -1700,9 +1705,7 @@ impl Interpreter {
         input: &str,
         previous_identifiers: Option<Vec<Identifier>>,
     ) -> Result<(Vec<Either>, Option<Vec<Identifier>>), Error> {
-        let input_chars = input.chars().collect::<Vec<_>>();
-
-        let mut tokenizer = Tokenizer::new(&input_chars);
+        let mut tokenizer = Tokenizer::new(&input);
         let tokens = tokenizer.tokenize();
 
         match tokens {
