@@ -605,7 +605,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse(&mut self) -> Result<Vec<AST>, Error> {
+    fn parse(&mut self) -> Result<Vec<AST>, ParseError> {
         let mut statements = Vec::new();
         loop {
             let parsed_statement = self.parse_next_statement()?;
@@ -622,47 +622,55 @@ impl<'a> Parser<'a> {
         Ok(statements)
     }
 
-    fn parse_next_statement(&mut self) -> Result<AST, Error> {
+    fn parse_next_statement(&mut self) -> Result<AST, ParseError> {
         self.parse_halt_statement()
             .or_else(|e| match e {
-                Error::ParseError(_) => self.parse_while_statement(),
-                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+                ParseError::StructureUnimplementedError(_) => self.parse_while_statement(),
+                ParseError::TypeError(_)
+                | ParseError::IdentifierError(_)
+                | ParseError::SyntaxError(_) => Err(e),
             })
             .or_else(|e| match e {
-                Error::ParseError(_) => self.parse_let_statement(),
-                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+                ParseError::StructureUnimplementedError(_) => self.parse_let_statement(),
+                ParseError::TypeError(_)
+                | ParseError::IdentifierError(_)
+                | ParseError::SyntaxError(_) => Err(e),
             })
             .or_else(|e| match e {
-                Error::ParseError(_) => self.parse_assignment_statement(),
-                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+                ParseError::StructureUnimplementedError(_) => self.parse_assignment_statement(),
+                ParseError::TypeError(_)
+                | ParseError::IdentifierError(_)
+                | ParseError::SyntaxError(_) => Err(e),
             })
             .or_else(|e| match e {
-                Error::ParseError(_) => self.parse_expression(),
-                Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+                ParseError::StructureUnimplementedError(_) => self.parse_expression(),
+                ParseError::TypeError(_)
+                | ParseError::IdentifierError(_)
+                | ParseError::SyntaxError(_) => Err(e),
             })
             .or_else(|e| match e {
-                e @ (Error::ParseError(_)
-                | Error::TypeError(_)
-                | Error::IdentifierError(_)
-                | Error::SyntaxError(_)) => Err(e),
+                e @ (ParseError::StructureUnimplementedError(_)
+                | ParseError::TypeError(_)
+                | ParseError::IdentifierError(_)
+                | ParseError::SyntaxError(_)) => Err(e),
             })
             .map(|(statement, _)| statement)
     }
-    fn parse_halt_statement(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_halt_statement(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         match self.peek().cloned() {
             Some(Token::EOFToken { token_info }) => {
                 self.advance();
                 Ok((AST::HaltStatement, token_info))
             }
-            Some(token) => Err(Error::ParseError(format!(
-                "Parsing Error: Cannot parse while statement found at line {}, column {}",
+            Some(token) => Err(ParseError::StructureUnimplementedError(format!(
+                "Parsing Error: Cannot parse halt statement found at line {}, column {}",
                 token.get_token_info().line_number,
                 token.get_token_info().column_number,
             ))),
             None => unreachable!(),
         }
     }
-    fn parse_while_statement(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_while_statement(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         self.consume_optional_whitespace();
         match self.peek().cloned() {
             Some(Token::KeywordToken {
@@ -684,13 +692,13 @@ impl<'a> Parser<'a> {
                         token_info,
                     ))
                 } else {
-                    Err(Error::ParseError(format!(
+                    Err(ParseError::StructureUnimplementedError(format!(
                         "Type Error: Cannot parse while statement found at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )))
                 }
             }
-            Some(token) => Err(Error::ParseError(format!(
+            Some(token) => Err(ParseError::StructureUnimplementedError(format!(
                 "Parsing Error: Cannot parse while statement found at line {}, column {}",
                 token.get_token_info().line_number,
                 token.get_token_info().column_number,
@@ -699,7 +707,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_let_statement(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_let_statement(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         self.consume_optional_whitespace();
         match self.peek().cloned() {
             Some(Token::KeywordToken {
@@ -724,7 +732,7 @@ impl<'a> Parser<'a> {
                                 let tipe = term.tipe();
 
                                 match tipe {
-                                    LanguageType::Void => Err(Error::TypeError(format!(
+                                    LanguageType::Void => Err(ParseError::TypeError(format!(
                                         "Type Error: Void type found at line {}, column {}",
                                         token_info.line_number, token_info.column_number
                                     ))),
@@ -757,29 +765,29 @@ impl<'a> Parser<'a> {
                                     token_info,
                                 ))
                             }
-                            Some(token) => Err(Error::SyntaxError(format!(
+                            Some(token) => Err(ParseError::SyntaxError(format!(
                                 "Syntax Error: No equal found at line {}, column {}",
                                 token.get_token_info().line_number,
                                 token.get_token_info().column_number
                             ))),
-                            None => Err(Error::SyntaxError(format!(
+                            None => Err(ParseError::SyntaxError(format!(
                                 "Parsing Error: None value encountered at line {}, {}",
                                 token_info.line_number, token_info.column_number
                             ))),
                         }
                     }
-                    Some(token) => Err(Error::SyntaxError(format!(
+                    Some(token) => Err(ParseError::SyntaxError(format!(
                         "Syntax Error: No identifier found at line {}, column {}",
                         token.get_token_info().line_number,
                         token.get_token_info().column_number
                     ))),
-                    None => Err(Error::SyntaxError(format!(
+                    None => Err(ParseError::SyntaxError(format!(
                         "Syntax Error: None value found at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     ))),
                 }
             }
-            Some(token) => Err(Error::ParseError(format!(
+            Some(token) => Err(ParseError::StructureUnimplementedError(format!(
                 "Parsing Error: Cannot parse let statement at line {}, column {}",
                 token.get_token_info().line_number,
                 token.get_token_info().column_number
@@ -787,7 +795,7 @@ impl<'a> Parser<'a> {
             _ => unreachable!(),
         }
     }
-    fn parse_assignment_statement(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_assignment_statement(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         self.consume_optional_whitespace();
         self.remember_index();
         match self.peek().cloned() {
@@ -809,7 +817,7 @@ impl<'a> Parser<'a> {
                                         token_info,
                                     ))
                                 } else {
-                                    Err(Error::TypeError(format!(
+                                    Err(ParseError::TypeError(format!(
                                         "Type Error: Type mismatched, found at line {}, column {}",
                                         token_info.line_number, token_info.column_number
                                     )))
@@ -817,20 +825,20 @@ impl<'a> Parser<'a> {
                             }
                             Some(other_token) => {
                                 self.back_track();
-                                Err(Error::ParseError(format!(
+                                Err(ParseError::StructureUnimplementedError(format!(
                                 "Parsing Error: Cannot parse assignment statement found at line {}, column {}",
                                 other_token.get_token_info().line_number,
                                 other_token.get_token_info().column_number
                             )))
                             }
-                            None => Err(Error::ParseError(format!(
+                            None => Err(ParseError::StructureUnimplementedError(format!(
                                 "Parsing Error: Cannot parse assignment statement found at line {}, column {}",
                                 token_info.line_number,
                                 token_info.column_number
                             ))),
                         }
                     }
-                    None => Err(Error::IdentifierError(format!(
+                    None => Err(ParseError::IdentifierError(format!(
                         "Identifier Error: use of undeclared variable '{}' encountered at line {}, column {}",
                         lexeme,
                         token_info.line_number,
@@ -838,7 +846,7 @@ impl<'a> Parser<'a> {
                     ))),
                 }
             }
-            Some(other_token) => Err(Error::ParseError(format!(
+            Some(other_token) => Err(ParseError::StructureUnimplementedError(format!(
                 "Parsing Error: Cannot parse assignment statement at line {}, column {}",
                 other_token.get_token_info().line_number,
                 other_token.get_token_info().column_number
@@ -847,14 +855,16 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_expression(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_expression(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         self.parse_if_else_expression().or_else(|e| match e {
-            Error::ParseError(_) => self.parse_logical_term(),
-            Error::TypeError(_) | Error::IdentifierError(_) | Error::SyntaxError(_) => Err(e),
+            ParseError::StructureUnimplementedError(_) => self.parse_logical_term(),
+            ParseError::TypeError(_)
+            | ParseError::IdentifierError(_)
+            | ParseError::SyntaxError(_) => Err(e),
         })
     }
 
-    fn parse_if_else_expression(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_if_else_expression(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         self.consume_optional_whitespace();
         match self.peek().cloned() {
             Some(Token::KeywordToken {
@@ -883,14 +893,14 @@ impl<'a> Parser<'a> {
                                 Ok((AST::IfElseStatement(Box::new(condition_expression), Box::new(if_block_expression), Box::new(else_block_expression), if_block_tipe), token_info))
                             }else{
 
-                                    Err(Error::TypeError(format!( "Type Error: type mismatched of if and else block found at line {}, column {}",
+                                    Err(ParseError::TypeError(format!( "Type Error: type mismatched of if and else block found at line {}, column {}",
                                 token_info.line_number,
                                 token_info.column_number
                             )))
                             }
                     }
                     Some(other_token) =>
-                                    Err(Error::SyntaxError(format!( "Syntax Error: Cannot parse matching else block at line {}, column {}, found {} instead",
+                                    Err(ParseError::SyntaxError(format!( "Syntax Error: Cannot parse matching else block at line {}, column {}, found {} instead",
                                 other_token.get_token_info().line_number,
                                 other_token.get_token_info().column_number,
                                 other_token.value(),
@@ -898,13 +908,13 @@ impl<'a> Parser<'a> {
                                     _ => unreachable!(),
                 }
                 } else {
-                    Err(Error::TypeError(format!(
+                    Err(ParseError::TypeError(format!(
                         "Type Error: Type mismatched found at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )))
                 }
             }
-            Some(token) => Err(Error::ParseError(format!(
+            Some(token) => Err(ParseError::StructureUnimplementedError(format!(
                 "Parsing Error: Cannot parse ifelse statement found at line {}, column {}",
                 token.get_token_info().line_number,
                 token.get_token_info().column_number,
@@ -913,7 +923,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_logical_term(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_logical_term(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         self.consume_optional_whitespace();
         let (mut first_expression, token_info) = self.parse_comparison_term()?;
         loop {
@@ -931,7 +941,7 @@ impl<'a> Parser<'a> {
                         first_expression = expr;
                         continue;
                     } else {
-                        return Err(Error::TypeError(format!(
+                        return Err(ParseError::TypeError(format!(
                             "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
                         )));
@@ -941,7 +951,7 @@ impl<'a> Parser<'a> {
                     operator: Operators::LOGICAL_AND | Operators::LOGICAL_OR,
                     token_info,
                 }) if first_expression.tipe() == &LanguageType::Number => {
-                    return Err(Error::TypeError(format!(
+                    return Err(ParseError::TypeError(format!(
                         "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )));
@@ -956,7 +966,7 @@ impl<'a> Parser<'a> {
             }
         }
     }
-    fn parse_comparison_term(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_comparison_term(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         let (mut first_expression, token_info) = self.parse_term()?;
 
         loop {
@@ -975,7 +985,7 @@ impl<'a> Parser<'a> {
                         first_expression = expr;
                         continue;
                     } else {
-                        return Err(Error::TypeError(format!(
+                        return Err(ParseError::TypeError(format!(
                             "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
                         )));
@@ -993,7 +1003,7 @@ impl<'a> Parser<'a> {
                         first_expression = expr;
                         continue;
                     } else {
-                        return Err(Error::TypeError(format!(
+                        return Err(ParseError::TypeError(format!(
                             "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
                         )));
@@ -1003,7 +1013,7 @@ impl<'a> Parser<'a> {
                     operator: operator @ (Operators::LESS_THAN | Operators::GREATER_THAN),
                     token_info,
                 }) if first_expression.tipe() == &LanguageType::Boolean => {
-                    return Err(Error::TypeError(format!(
+                    return Err(ParseError::TypeError(format!(
                         "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )));
@@ -1017,7 +1027,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_term(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_term(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         let (mut first_expression, token_info) = self.parse_prod()?;
         loop {
             match self.peek().cloned() {
@@ -1033,7 +1043,7 @@ impl<'a> Parser<'a> {
                         first_expression = expr;
                         continue;
                     } else {
-                        return Err(Error::TypeError(format!(
+                        return Err(ParseError::TypeError(format!(
                             "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
                         )));
@@ -1045,7 +1055,7 @@ impl<'a> Parser<'a> {
                 }) if first_expression.tipe() == &LanguageType::Boolean
                     || first_expression.tipe() == &LanguageType::Void =>
                 {
-                    return Err(Error::TypeError(format!(
+                    return Err(ParseError::TypeError(format!(
                         "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )));
@@ -1061,7 +1071,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_prod(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_prod(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         let (mut first_expression, token_info) = self.parse_unary()?;
         loop {
             match self.peek().cloned() {
@@ -1077,7 +1087,7 @@ impl<'a> Parser<'a> {
                         first_expression = expr;
                         continue;
                     } else {
-                        return Err(Error::TypeError(format!(
+                        return Err(ParseError::TypeError(format!(
                             "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
                         )));
@@ -1089,7 +1099,7 @@ impl<'a> Parser<'a> {
                 }) if first_expression.tipe() == &LanguageType::Boolean
                     || first_expression.tipe() == &LanguageType::Void =>
                 {
-                    return Err(Error::TypeError(format!(
+                    return Err(ParseError::TypeError(format!(
                         "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )));
@@ -1106,7 +1116,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_unary(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_unary(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         match self.peek().cloned() {
             Some(Token::OperatorToken {
                 operator: operator @ (Operators::PLUS | Operators::MINUS),
@@ -1119,7 +1129,7 @@ impl<'a> Parser<'a> {
                 if tipe == LanguageType::Number {
                     Ok((unary_expr, token_info))
                 } else {
-                    Err(Error::TypeError(format!(
+                    Err(ParseError::TypeError(format!(
                         "Type Error: Type mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )))
@@ -1136,7 +1146,7 @@ impl<'a> Parser<'a> {
                 if tipe == LanguageType::Boolean {
                     Ok((unary_expr, token_info))
                 } else {
-                    Err(Error::TypeError(format!(
+                    Err(ParseError::TypeError(format!(
                         "Type Error: Type mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )))
@@ -1150,7 +1160,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_bracket(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_bracket(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         match self.peek().cloned() {
             Some(Token::SymbolToken {
                 symbol: Symbols::SmallBracketOpen,
@@ -1170,12 +1180,12 @@ impl<'a> Parser<'a> {
                         self.advance();
                         self.parse_bracket()
                     }
-                    Some(token) => Err(Error::ParseError(format!(
+                    Some(token) => Err(ParseError::StructureUnimplementedError(format!(
                         "Parsing Error: No closing bracket found at line {}, column {}",
                         token.get_token_info().line_number,
                         token.get_token_info().column_number
                     ))),
-                    None => Err(Error::ParseError(format!(
+                    None => Err(ParseError::StructureUnimplementedError(format!(
                         "Parsing Error: None value encountered"
                     ))),
                 }
@@ -1184,7 +1194,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_block_expression(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_block_expression(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         match self.peek().cloned() {
             Some(Token::SymbolToken {
                 symbol: Symbols::CurlyBracketOpen,
@@ -1234,7 +1244,7 @@ impl<'a> Parser<'a> {
                             statements.push(statement);
                         }
                         None => {
-                            return Err(Error::TypeError(format!("None encountered")));
+                            return Err(ParseError::TypeError(format!("None encountered")));
                         }
                     }
                 }
@@ -1243,7 +1253,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_identifier_expression(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_identifier_expression(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         match self.peek().cloned() {
             Some(Token::IdentifierToken { lexeme, token_info }) => {
                 // println!("debug in parse_literal {:?}", var_name);
@@ -1251,7 +1261,7 @@ impl<'a> Parser<'a> {
                 let identifier_name = lexeme;
                 match self.get_reference_to_identifier(&identifier_name) {
                     Some(identifier) => Ok((identifier.clone_to_ast(), token_info)),
-                    None => Err(Error::IdentifierError(format!(
+                    None => Err(ParseError::IdentifierError(format!(
                 "Identifier Error: No variable named '{}' found in scope at line {}, column {}",
                 identifier_name,
                 token_info.line_number,
@@ -1262,7 +1272,7 @@ impl<'a> Parser<'a> {
             _ => self.parse_number_literal(),
         }
     }
-    fn parse_number_literal(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_number_literal(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         match self.peek().cloned() {
             Some(Token::DigitToken { lexeme, token_info }) => {
                 let mut digits = vec![lexeme];
@@ -1283,7 +1293,7 @@ impl<'a> Parser<'a> {
                             symbol: Symbols::Dot,
                             token_info,
                         }) if num_of_dot >= 1 => {
-                            return Err(Error::SyntaxError(format!(
+                            return Err(ParseError::SyntaxError(format!(
                                 "Syntax Error: Extra decimal(.) encountered at line {}, column {}",
                                 token_info.line_number, token_info.column_number,
                             )));
@@ -1315,7 +1325,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_literal(&mut self) -> Result<(AST, TokenInfo), Error> {
+    fn parse_literal(&mut self) -> Result<(AST, TokenInfo), ParseError> {
         match self.peek().cloned() {
             Some(Token::KeywordToken { keyword: Keywords::True, token_info }) => {
                 self.advance();
@@ -1326,7 +1336,7 @@ impl<'a> Parser<'a> {
                 Ok((AST::Bool(false), token_info))
             }
 
-            Some(token) => Err(Error::SyntaxError(format!(
+            Some(token) => Err(ParseError::SyntaxError(format!(
                 "Syntax Error: Value other than literal (Number, Boolean...) '{}' encountered at line {}, column {}",
                 token.value(),
                 token.get_token_info().line_number,
@@ -1388,8 +1398,8 @@ impl AST {
 }
 
 #[derive(Debug)]
-enum Error {
-    ParseError(String),
+enum ParseError {
+    StructureUnimplementedError(String),
     TypeError(String),
     IdentifierError(String),
     SyntaxError(String),
@@ -1699,7 +1709,7 @@ impl Interpreter {
         &mut self,
         input: &str,
         previous_identifiers: Option<Vec<Identifier>>,
-    ) -> Result<(Vec<AST>, Option<Vec<Identifier>>), Error> {
+    ) -> Result<(Vec<AST>, Option<Vec<Identifier>>), ParseError> {
         let mut tokenizer = Tokenizer::new(&input);
         let tokens = tokenizer.tokenize();
 
@@ -1718,7 +1728,7 @@ impl Interpreter {
             }
             Err(err) => {
                 self.set_previous_identifiers(previous_identifiers);
-                Err(Error::ParseError(
+                Err(ParseError::StructureUnimplementedError(
                     err.into_iter()
                         .map(|x| x + "\n")
                         .collect::<String>()
