@@ -1510,13 +1510,13 @@ impl Identifier {
 
 ///////////////////////////////////////////////////////// Interpreter Code /////////////////////////////////////////////////
 #[derive(Debug, Clone, Copy)]
-enum InternalDataStucture {
+enum InterpreterDataStucture {
     Number(f64),
     Bool(bool),
     Void,
 }
 
-impl InternalDataStucture {
+impl InterpreterDataStucture {
     fn __match_binary_operation__(left: Self, right: Self, operator: Operators) -> Self {
         match (left, right) {
             (Self::Number(l), Self::Number(r)) => match operator {
@@ -1569,7 +1569,7 @@ impl InternalDataStucture {
 }
 #[derive(Debug)]
 struct Environment {
-    container: Vec<HashMap<String, InternalDataStucture>>,
+    container: Vec<HashMap<String, InterpreterDataStucture>>,
 }
 
 impl Environment {
@@ -1578,10 +1578,10 @@ impl Environment {
             container: vec![HashMap::new()],
         }
     }
-    fn insert_new(&mut self, lvalue: String, rvalue: InternalDataStucture) {
+    fn insert_new(&mut self, lvalue: String, rvalue: InterpreterDataStucture) {
         self.container.last_mut().unwrap().insert(lvalue, rvalue);
     }
-    fn insert(&mut self, lvalue: String, rvalue: InternalDataStucture) {
+    fn insert(&mut self, lvalue: String, rvalue: InterpreterDataStucture) {
         let mut location = 0;
         for (i, child_container) in self.container.iter().enumerate().rev() {
             if child_container.contains_key(&lvalue) {
@@ -1590,7 +1590,7 @@ impl Environment {
         }
         self.container[location].insert(lvalue, rvalue);
     }
-    fn get(&self, name: &str) -> Option<&InternalDataStucture> {
+    fn get(&self, name: &str) -> Option<&InterpreterDataStucture> {
         for container in self.container.iter().rev() {
             if container.contains_key(name) {
                 return container.get(name);
@@ -1618,18 +1618,18 @@ impl Interpreter {
         }
     }
 
-    fn calculate_statement(&mut self, statement: &AST) -> InternalDataStucture {
+    fn calculate_statement(&mut self, statement: &AST) -> InterpreterDataStucture {
         match statement {
-            AST::Number(val) => InternalDataStucture::Number(*val),
+            AST::Number(val) => InterpreterDataStucture::Number(*val),
 
-            AST::Bool(val) => InternalDataStucture::Bool(*val),
+            AST::Bool(val) => InterpreterDataStucture::Bool(*val),
 
             AST::BinaryExpression(boxed_expression) => match &**boxed_expression {
                 BinaryExpression {
                     left,
                     right,
                     operator,
-                } => InternalDataStucture::__match_binary_operation__(
+                } => InterpreterDataStucture::__match_binary_operation__(
                     self.calculate_statement(&left),
                     self.calculate_statement(&right),
                     *operator,
@@ -1637,7 +1637,7 @@ impl Interpreter {
             },
             AST::UnaryExpression(boxed_expression) => match &**boxed_expression {
                 UnaryExpression { val, operator } => {
-                    InternalDataStucture::__match_unary_operation__(
+                    InterpreterDataStucture::__match_unary_operation__(
                         self.calculate_statement(&val),
                         *operator,
                     )
@@ -1647,7 +1647,7 @@ impl Interpreter {
                 LetStatement { lvalue, rvalue } => {
                     let return_val = self.calculate_statement(&rvalue);
                     self.environment.insert_new(lvalue.clone(), return_val);
-                    InternalDataStucture::Void
+                    InterpreterDataStucture::Void
                 }
             },
             AST::AssignmentStatement(boxed_assignment_statement) => {
@@ -1655,33 +1655,33 @@ impl Interpreter {
                     AssignmentStatement { lvalue, rvalue } => {
                         let return_val = self.calculate_statement(&rvalue);
                         self.environment.insert(lvalue.clone(), return_val);
-                        InternalDataStucture::Void
+                        InterpreterDataStucture::Void
                     }
                 }
             }
             AST::Identifier(identifier) => self.environment.get(&identifier.name).unwrap().clone(),
 
             AST::BlockStatement(statements, tipe) => {
-                let mut result = InternalDataStucture::Void;
+                let mut result = InterpreterDataStucture::Void;
                 self.environment.create_child();
                 for statement in statements {
                     result = self.calculate_statement(statement);
                 }
                 self.environment.pop_child();
                 match tipe {
-                    LanguageType::Void => InternalDataStucture::Void,
+                    LanguageType::Void => InterpreterDataStucture::Void,
                     _ => result,
                 }
             }
 
             AST::WhileStatement(condition, block_statement) => {
-                let mut result = InternalDataStucture::Void;
+                let mut result = InterpreterDataStucture::Void;
                 loop {
                     match self.calculate_statement(condition) {
-                        InternalDataStucture::Bool(b) if b == true => {
+                        InterpreterDataStucture::Bool(b) if b == true => {
                             result = self.calculate_statement(block_statement);
                         }
-                        InternalDataStucture::Bool(b) if b == false => break,
+                        InterpreterDataStucture::Bool(b) if b == false => break,
                         _ => unreachable!(),
                     }
                 }
@@ -1690,18 +1690,18 @@ impl Interpreter {
             AST::IfElseStatement(condition, if_block_statement, else_block_statement, _) => {
                 let result;
                 match self.calculate_statement(condition) {
-                    InternalDataStucture::Bool(b) if b == true => {
+                    InterpreterDataStucture::Bool(b) if b == true => {
                         result = self.calculate_statement(if_block_statement);
                     }
-                    InternalDataStucture::Bool(b) if b == false => {
+                    InterpreterDataStucture::Bool(b) if b == false => {
                         result = self.calculate_statement(else_block_statement);
                     }
                     _ => unreachable!(),
                 }
                 result
             }
-            AST::Placeholder(tipe) => InternalDataStucture::Void,
-            AST::HaltStatement => InternalDataStucture::Void,
+            AST::Placeholder(tipe) => InterpreterDataStucture::Void,
+            AST::HaltStatement => InterpreterDataStucture::Void,
         }
     }
 
@@ -1747,7 +1747,7 @@ impl Interpreter {
             Ok((parsed_statements, new_identifiers)) => {
                 for statement in parsed_statements {
                     match self.calculate_statement(&statement) {
-                        InternalDataStucture::Void => continue,
+                        InterpreterDataStucture::Void => continue,
                         result => println!("{:?}", result),
                     }
                 }
