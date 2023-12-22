@@ -1,6 +1,4 @@
-use std::{
-    collections::HashMap, format, io::Write, println, rc::Rc, unimplemented, unreachable, vec,
-};
+use std::{collections::HashMap, format, io::Write, println, rc::Rc, unreachable, vec};
 
 fn main() {
     let prompt = "
@@ -92,6 +90,7 @@ impl Symbols {
         }
     }
 }
+#[allow(non_camel_case_types)]
 #[derive(PartialEq, Debug, Clone, Copy)]
 enum Operators {
     PLUS,
@@ -149,92 +148,113 @@ impl Operators {
             | Self::EQUAL_TO => &LanguageType::Boolean,
         }
     }
-    fn is_equal<'a>(&self, check_with: &'a [char]) -> bool {
-        check_with.iter().collect::<String>() == self.lexeme()
-    }
 }
 
 #[derive(PartialEq, Debug, Clone)]
 enum Token {
     DigitToken {
         lexeme: Rc<str>,
-        token_info: TokenInfo,
+        token_info: Rc<TokenInfo>,
     },
     AlphabetToken {
         lexeme: Rc<str>,
-        token_info: TokenInfo,
+        token_info: Rc<TokenInfo>,
     },
     IdentifierToken {
         lexeme: Rc<str>,
-        token_info: TokenInfo,
+        token_info: Rc<TokenInfo>,
     },
     OperatorToken {
         operator: Operators,
-        token_info: TokenInfo,
+        token_info: Rc<TokenInfo>,
     },
     SymbolToken {
         symbol: Symbols,
-        token_info: TokenInfo,
+        token_info: Rc<TokenInfo>,
     },
     KeywordToken {
         keyword: Keywords,
-        token_info: TokenInfo,
+        token_info: Rc<TokenInfo>,
     },
 
     WhiteSpaceToken {
-        token_info: TokenInfo,
+        token_info: Rc<TokenInfo>,
     },
     NewLineToken {
-        token_info: TokenInfo,
+        token_info: Rc<TokenInfo>,
     },
     EOFToken {
-        token_info: TokenInfo,
+        token_info: Rc<TokenInfo>,
     },
 }
 impl Token {
-    fn get_token_info(&self) -> &TokenInfo {
+    fn get_token_info(&self) -> Rc<TokenInfo> {
         match self {
-            Self::DigitToken { lexeme, token_info } => &token_info,
-            Self::AlphabetToken { lexeme, token_info } => &token_info,
-            Self::IdentifierToken { lexeme, token_info } => &token_info,
+            Self::DigitToken {
+                lexeme: _,
+                token_info,
+            } => token_info.clone(),
+            Self::AlphabetToken {
+                lexeme: _,
+                token_info,
+            } => token_info.clone(),
+            Self::IdentifierToken {
+                lexeme: _,
+                token_info,
+            } => token_info.clone(),
 
             Self::OperatorToken {
-                operator,
+                operator: _,
                 token_info,
-            } => &token_info,
-            Self::SymbolToken { symbol, token_info } => &token_info,
+            } => token_info.clone(),
+            Self::SymbolToken {
+                symbol: _,
+                token_info,
+            } => token_info.clone(),
             Self::KeywordToken {
-                keyword,
+                keyword: _,
                 token_info,
-            } => &token_info,
+            } => token_info.clone(),
 
-            Self::WhiteSpaceToken { token_info } => &token_info,
-            Self::NewLineToken { token_info } => &token_info,
+            Self::WhiteSpaceToken { token_info } => token_info.clone(),
+            Self::NewLineToken { token_info } => token_info.clone(),
 
-            Self::EOFToken { token_info } => &token_info,
+            Self::EOFToken { token_info } => token_info.clone(),
         }
     }
     fn value(&self) -> Rc<str> {
         match self {
-            Self::DigitToken { lexeme, token_info } => lexeme.clone(),
-            Self::AlphabetToken { lexeme, token_info } => lexeme.clone(),
-            Self::IdentifierToken { lexeme, token_info } => lexeme.clone(),
+            Self::DigitToken {
+                lexeme,
+                token_info: _,
+            } => lexeme.clone(),
+            Self::AlphabetToken {
+                lexeme,
+                token_info: _,
+            } => lexeme.clone(),
+            Self::IdentifierToken {
+                lexeme,
+                token_info: _,
+            } => lexeme.clone(),
 
             Self::OperatorToken {
                 operator,
-                token_info,
+                token_info: _,
             } => operator.lexeme().into(),
 
-            Self::SymbolToken { symbol, token_info } => symbol.lexeme().into(),
+            Self::SymbolToken {
+                symbol,
+                token_info: _,
+            } => symbol.lexeme().into(),
             Self::KeywordToken {
                 keyword,
-                token_info,
+                token_info: _,
             } => keyword.lexeme().into(),
 
-            Self::WhiteSpaceToken { token_info } => " ".into(),
-            Self::NewLineToken { token_info } => "\n".into(),
+            Self::WhiteSpaceToken { token_info: _ } => " ".into(),
+            Self::NewLineToken { token_info: _ } => "\n".into(),
 
-            Self::EOFToken { token_info } => "<EOF>".into(),
+            Self::EOFToken { token_info: _ } => "<EOF>".into(),
         }
     }
 }
@@ -259,11 +279,11 @@ impl Tokenizer {
             line_number: 1,
         }
     }
-    fn get_token_info(&self) -> TokenInfo {
-        TokenInfo {
+    fn get_token_info(&self) -> Rc<TokenInfo> {
+        Rc::new(TokenInfo {
             line_number: self.line_number,
             column_number: self.column_number,
-        }
+        })
     }
 
     fn advance(&mut self) {
@@ -466,7 +486,7 @@ struct Parser<'a> {
     len: usize,
     block_position: usize,
     num_identifiers_in_block: Vec<usize>,
-    identifiers_list: Option<Vec<Identifier>>,
+    identifiers_list: Option<Vec<AST>>,
 }
 
 impl<'a> Parser<'a> {
@@ -511,11 +531,11 @@ impl<'a> Parser<'a> {
         self.index = self.back_track_index;
     }
 
-    fn get_identifiers_list(self) -> Option<Vec<Identifier>> {
+    fn get_identifiers_list(self) -> Option<Vec<AST>> {
         self.identifiers_list
     }
 
-    fn push_identifier(&mut self, identifier: Identifier) {
+    fn push_identifier(&mut self, identifier: AST) {
         if self.identifiers_list.is_none() {
             self.identifiers_list = Some(vec![identifier]);
         } else {
@@ -525,16 +545,18 @@ impl<'a> Parser<'a> {
         self.increment_num_identifier_in_current_block();
     }
 
-    fn set_previous_identifiers_list(&mut self, previous_identifier_list: Option<Vec<Identifier>>) {
+    fn set_previous_identifiers_list(&mut self, previous_identifier_list: Option<Vec<AST>>) {
         self.identifiers_list = previous_identifier_list
     }
 
-    fn get_reference_to_identifier(&self, name: &str) -> Option<Identifier> {
+    fn get_reference_to_identifier(&self, name: &Rc<str>) -> Option<AST> {
         match &self.identifiers_list {
             Some(identifiers) => {
                 for identifier in identifiers.iter().rev() {
-                    if name == identifier.name {
-                        return Some(identifier.clone());
+                    if let Some(name_to_match) = identifier.get_identifier_name() {
+                        if name_to_match == *name {
+                            return identifier.clone_identifier();
+                        }
                     }
                 }
             }
@@ -543,20 +565,19 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn modify_identifier_type(
-        &mut self,
-        identifier_to_modify: &Identifier,
-        tipe_value: LanguageType,
-    ) {
+    fn modify_identifier_type(&mut self, identifier_to_modify: &AST, tipe_value: LanguageType) {
         match self.identifiers_list.as_deref_mut() {
             Some(identifiers) => {
                 for identifier in identifiers.iter_mut().rev() {
-                    if identifier.name == identifier_to_modify.name {
-                        *identifier = Identifier::new(
-                            &identifier.name,
-                            identifier.block_position,
-                            tipe_value,
-                        );
+                    if identifier.get_identifier_name()
+                        == identifier_to_modify.get_identifier_name()
+                    {
+                        match identifier.clone_and_modify_identifier(tipe_value) {
+                            Some(cloned_identifier) => {
+                                *identifier = cloned_identifier;
+                            }
+                            None => continue,
+                        }
                     }
                 }
             }
@@ -574,9 +595,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn peek(&self) -> Option<&Token> {
+    fn peek(&self) -> Option<Token> {
         if self.index < self.len {
-            Some(&self.tokens[self.index])
+            Some(&self.tokens[self.index]).cloned()
         } else {
             None
         }
@@ -586,7 +607,7 @@ impl<'a> Parser<'a> {
         match self.peek() {
             Some(Token::SymbolToken {
                 symbol: Symbols::SemiColon,
-                token_info,
+                token_info: _,
             }) => {
                 self.advance();
                 true
@@ -597,7 +618,7 @@ impl<'a> Parser<'a> {
 
     fn consume_optional_whitespace(&mut self) -> bool {
         match self.peek() {
-            Some(Token::WhiteSpaceToken { token_info }) => {
+            Some(Token::WhiteSpaceToken { token_info: _ }) => {
                 self.advance();
                 true
             }
@@ -654,13 +675,12 @@ impl<'a> Parser<'a> {
                 | ParseError::IdentifierError(_)
                 | ParseError::SyntaxError(_)) => Err(e),
             })
-            .map(|(statement, _)| statement)
     }
-    fn parse_halt_statement(&mut self) -> Result<(AST, TokenInfo), ParseError> {
-        match self.peek().cloned() {
-            Some(Token::EOFToken { token_info }) => {
+    fn parse_halt_statement(&mut self) -> Result<AST, ParseError> {
+        match self.peek() {
+            Some(Token::EOFToken { token_info: _ }) => {
                 self.advance();
-                Ok((AST::HaltStatement, token_info))
+                Ok(AST::HaltStatement)
             }
             Some(token) => Err(ParseError::StructureUnimplementedError(format!(
                 "Parsing Error: Cannot parse halt statement found at line {}, column {}",
@@ -670,30 +690,28 @@ impl<'a> Parser<'a> {
             None => unreachable!(),
         }
     }
-    fn parse_while_statement(&mut self) -> Result<(AST, TokenInfo), ParseError> {
+    fn parse_while_statement(&mut self) -> Result<AST, ParseError> {
         self.consume_optional_whitespace();
-        match self.peek().cloned() {
+        match self.peek() {
             Some(Token::KeywordToken {
                 keyword: Keywords::While,
                 token_info,
             }) => {
                 self.advance();
                 self.consume_optional_whitespace();
-                let (condition_expression, token_info) = self.parse_logical_term()?;
-                if condition_expression.tipe() == &LanguageType::Boolean {
+                let condition_expression = self.parse_logical_term()?;
+                if condition_expression.tipe() == LanguageType::Boolean {
                     self.consume_optional_whitespace();
-                    let (block_expression, _) = self.parse_logical_term()?;
-                    let tipe = block_expression.tipe().clone();
-                    Ok((
-                        AST::WhileStatement(
-                            Box::new(condition_expression),
-                            Box::new(block_expression),
-                        ),
-                        token_info,
+                    let block_expression = self.parse_logical_term()?;
+                    Ok(AST::new_while_statement(
+                        condition_expression,
+                        block_expression,
+                        &token_info,
                     ))
                 } else {
-                    Err(ParseError::StructureUnimplementedError(format!(
-                        "Type Error: Cannot parse while statement found at line {}, column {}",
+                    let token_info = condition_expression.token_info();
+                    Err(ParseError::TypeError(format!(
+                        "Type Error: Type mismatched found at line {}, column {}\n Condition expression must be boolean",
                         token_info.line_number, token_info.column_number
                     )))
                 }
@@ -707,28 +725,30 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_let_statement(&mut self) -> Result<(AST, TokenInfo), ParseError> {
+    fn parse_let_statement(&mut self) -> Result<AST, ParseError> {
         self.consume_optional_whitespace();
-        match self.peek().cloned() {
+        match self.peek() {
             Some(Token::KeywordToken {
                 keyword: Keywords::Let,
                 token_info,
             }) => {
                 self.advance();
                 self.advance(); //consume whitespace
-                match self.peek().cloned() {
-                    Some(Token::IdentifierToken { lexeme, token_info }) => {
+                match self.peek() {
+                    Some(Token::IdentifierToken {
+                        lexeme,
+                        token_info: identifier_token_info,
+                    }) => {
                         self.advance();
                         self.consume_optional_whitespace();
-                        match self.peek().cloned() {
+                        match self.peek() {
                             Some(Token::SymbolToken {
                                 symbol: Symbols::Equal,
-                                token_info,
+                                token_info: _,
                             }) => {
                                 self.advance();
                                 self.consume_optional_whitespace();
-                                let (term, token_info) = self.parse_expression()?;
-
+                                let term = self.parse_expression()?;
                                 let tipe = term.tipe();
 
                                 match tipe {
@@ -737,39 +757,25 @@ impl<'a> Parser<'a> {
                                         token_info.line_number, token_info.column_number
                                     ))),
                                     _ => {
-                                        self.push_identifier(Identifier::new(
+                                        self.push_identifier(AST::new_identifier(
                                             &lexeme,
                                             self.get_block_position(),
-                                            *tipe,
+                                            tipe,
+                                            &identifier_token_info,
                                         ));
-
-                                        Ok((
-                                            LetStatement::new(lexeme.to_string(), term),
-                                            token_info,
-                                        ))
+                                        Ok(AST::new_let_statement(&lexeme, term, &token_info))
                                     }
                                 }
                             }
-                            Some(token) => {
-                                self.push_identifier(Identifier::new(
+                            Some(_) => {
+                                self.push_identifier(AST::new_identifier(
                                     &lexeme,
                                     self.get_block_position(),
-                                    LanguageType::Void,
+                                    LanguageType::Untyped,
+                                    &identifier_token_info,
                                 ));
-
-                                Ok((
-                                    LetStatement::new(
-                                        lexeme.to_string(),
-                                        AST::Placeholder(LanguageType::Untyped),
-                                    ),
-                                    token_info,
-                                ))
+                                Ok(AST::new_unassigned_let_statement(&lexeme, &token_info))
                             }
-                            Some(token) => Err(ParseError::SyntaxError(format!(
-                                "Syntax Error: No equal found at line {}, column {}",
-                                token.get_token_info().line_number,
-                                token.get_token_info().column_number
-                            ))),
                             None => Err(ParseError::SyntaxError(format!(
                                 "Parsing Error: None value encountered at line {}, {}",
                                 token_info.line_number, token_info.column_number
@@ -795,28 +801,26 @@ impl<'a> Parser<'a> {
             _ => unreachable!(),
         }
     }
-    fn parse_assignment_statement(&mut self) -> Result<(AST, TokenInfo), ParseError> {
+    fn parse_assignment_statement(&mut self) -> Result<AST, ParseError> {
         self.consume_optional_whitespace();
         self.remember_index();
-        match self.peek().cloned() {
+        match self.peek() {
             Some(Token::IdentifierToken { lexeme, token_info }) => {
                 match self.get_reference_to_identifier(&lexeme) {
                     Some(identifier) => {
                         self.advance();
                         self.consume_optional_whitespace();
-                        match self.peek().cloned() {
-                            Some(Token::SymbolToken{symbol: Symbols::Equal, token_info}) =>
+                        match self.peek() {
+                            Some(Token::SymbolToken{symbol: Symbols::Equal, token_info:_}) =>
                             {
                                 self.advance();
                                 self.consume_optional_whitespace();
-                                let (term, token_info) = self.parse_expression()?;
-                                if term.tipe() == identifier.tipe() || identifier.tipe() == &LanguageType::Void{
-                                    self.modify_identifier_type(&identifier, *term.tipe());
-                                    Ok((
-                                        AssignmentStatement::new(lexeme.to_string(), term),
-                                        token_info,
-                                    ))
+                                let term = self.parse_expression()?;
+                                if term.tipe() == identifier.tipe() || identifier.tipe() == LanguageType::Untyped{
+                                    self.modify_identifier_type(&identifier, term.tipe());
+                                    Ok(AST::new_assignment_statement(&lexeme, term, &token_info))
                                 } else {
+                                    let token_info = term.token_info();
                                     Err(ParseError::TypeError(format!(
                                         "Type Error: Type mismatched, found at line {}, column {}",
                                         token_info.line_number, token_info.column_number
@@ -855,7 +859,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_expression(&mut self) -> Result<(AST, TokenInfo), ParseError> {
+    fn parse_expression(&mut self) -> Result<AST, ParseError> {
         self.parse_if_else_expression().or_else(|e| match e {
             ParseError::StructureUnimplementedError(_) => self.parse_logical_term(),
             ParseError::TypeError(_)
@@ -864,36 +868,37 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_if_else_expression(&mut self) -> Result<(AST, TokenInfo), ParseError> {
+    fn parse_if_else_expression(&mut self) -> Result<AST, ParseError> {
         self.consume_optional_whitespace();
-        match self.peek().cloned() {
+        match self.peek() {
             Some(Token::KeywordToken {
                 keyword: Keywords::If,
                 token_info,
             }) => {
                 self.advance();
                 self.consume_optional_whitespace();
-                let (condition_expression, token_info) = self.parse_logical_term()?;
-                if condition_expression.tipe() == &LanguageType::Boolean {
+                let cond = self.parse_logical_term()?;
+                if cond.tipe() == LanguageType::Boolean {
                     self.consume_optional_whitespace();
-                    let (if_block_expression, _) = self.parse_logical_term()?;
-                    let if_block_tipe = if_block_expression.tipe().clone();
+                    let if_block = self.parse_logical_term()?;
+                    let if_block_tipe = if_block.tipe();
 
                     self.consume_optional_whitespace();
 
-                    match self.peek().cloned(){
-                        Some(Token::KeywordToken{keyword: Keywords::Else, token_info}) => {
+                    match self.peek(){
+                        Some(Token::KeywordToken{keyword: Keywords::Else, token_info:_}) => {
                             self.advance();
                             self.consume_optional_whitespace();
 
-                            let (else_block_expression, token_info) = self.parse_expression()?;
-                            let else_block_tipe = else_block_expression.tipe();
+                            let else_block = self.parse_expression()?;
+                            let else_block_tipe = else_block.tipe();
 
-                            if if_block_tipe == *else_block_tipe {
-                                Ok((AST::IfElseStatement(Box::new(condition_expression), Box::new(if_block_expression), Box::new(else_block_expression), if_block_tipe), token_info))
+                            if if_block_tipe == else_block_tipe {
+                                Ok(AST::new_if_else_statement(cond, if_block, else_block, if_block_tipe, &token_info))
                             }else{
 
-                                    Err(ParseError::TypeError(format!( "Type Error: type mismatched of if and else block found at line {}, column {}",
+                                let token_info = else_block.token_info();
+                                Err(ParseError::TypeError(format!( "Type Error: type mismatched of if and else block found at line {}, column {}",
                                 token_info.line_number,
                                 token_info.column_number
                             )))
@@ -908,6 +913,7 @@ impl<'a> Parser<'a> {
                                     _ => unreachable!(),
                 }
                 } else {
+                    let token_info = cond.token_info();
                     Err(ParseError::TypeError(format!(
                         "Type Error: Type mismatched found at line {}, column {}",
                         token_info.line_number, token_info.column_number
@@ -919,28 +925,32 @@ impl<'a> Parser<'a> {
                 token.get_token_info().line_number,
                 token.get_token_info().column_number,
             ))),
+
             _ => unreachable!(),
         }
     }
 
-    fn parse_logical_term(&mut self) -> Result<(AST, TokenInfo), ParseError> {
+    fn parse_logical_term(&mut self) -> Result<AST, ParseError> {
         self.consume_optional_whitespace();
-        let (mut first_expression, token_info) = self.parse_comparison_term()?;
+        let mut first_expression = self.parse_comparison_term()?;
         loop {
-            match self.peek().cloned() {
+            match self.peek() {
                 Some(Token::OperatorToken {
                     operator: operator @ (Operators::LOGICAL_AND | Operators::LOGICAL_OR),
-
-                    token_info,
-                }) if first_expression.tipe() == &LanguageType::Boolean => {
+                    token_info: _,
+                }) if first_expression.tipe() == LanguageType::Boolean => {
                     self.advance();
-                    let (second_expression, token_info) = self.parse_comparison_term()?;
+                    let second_expression = self.parse_comparison_term()?;
                     if first_expression.tipe() == second_expression.tipe() {
-                        let expr =
-                            BinaryExpression::new(first_expression, second_expression, operator);
+                        let expr = AST::new_binary_expression(
+                            first_expression,
+                            second_expression,
+                            operator,
+                        );
                         first_expression = expr;
                         continue;
                     } else {
+                        let token_info = second_expression.token_info();
                         return Err(ParseError::TypeError(format!(
                             "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
@@ -950,41 +960,43 @@ impl<'a> Parser<'a> {
                 Some(Token::OperatorToken {
                     operator: Operators::LOGICAL_AND | Operators::LOGICAL_OR,
                     token_info,
-                }) if first_expression.tipe() == &LanguageType::Number => {
+                }) if first_expression.tipe() == LanguageType::Number => {
                     return Err(ParseError::TypeError(format!(
                         "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )));
                 }
-                Some(Token::WhiteSpaceToken { token_info }) => {
+                Some(Token::WhiteSpaceToken { token_info: _ }) => {
                     self.advance();
                     continue;
                 }
-                _ => {
-                    return Ok((first_expression, token_info));
-                }
+                _ => return Ok(first_expression),
             }
         }
     }
-    fn parse_comparison_term(&mut self) -> Result<(AST, TokenInfo), ParseError> {
-        let (mut first_expression, token_info) = self.parse_term()?;
+    fn parse_comparison_term(&mut self) -> Result<AST, ParseError> {
+        let mut first_expression = self.parse_term()?;
 
         loop {
-            match self.peek().cloned() {
+            match self.peek() {
                 Some(Token::OperatorToken {
                     operator:
                         operator
                         @ (Operators::LESS_THAN | Operators::GREATER_THAN | Operators::EQUAL_TO),
-                    token_info,
-                }) if first_expression.tipe() == &LanguageType::Number => {
+                    token_info: _,
+                }) if first_expression.tipe() == LanguageType::Number => {
                     self.advance();
-                    let (second_expression, token_info) = self.parse_term()?;
+                    let second_expression = self.parse_term()?;
                     if first_expression.tipe() == second_expression.tipe() {
-                        let expr =
-                            BinaryExpression::new(first_expression, second_expression, operator);
+                        let expr = AST::new_binary_expression(
+                            first_expression,
+                            second_expression,
+                            operator,
+                        );
                         first_expression = expr;
                         continue;
                     } else {
+                        let token_info = second_expression.token_info();
                         return Err(ParseError::TypeError(format!(
                             "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
@@ -993,16 +1005,20 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::OperatorToken {
                     operator: operator @ Operators::EQUAL_TO,
-                    token_info,
-                }) if first_expression.tipe() == &LanguageType::Boolean => {
+                    token_info: _,
+                }) if first_expression.tipe() == LanguageType::Boolean => {
                     self.advance();
-                    let (second_expression, token_info) = self.parse_term()?;
+                    let second_expression = self.parse_term()?;
                     if first_expression.tipe() == second_expression.tipe() {
-                        let expr =
-                            BinaryExpression::new(first_expression, second_expression, operator);
+                        let expr = AST::new_binary_expression(
+                            first_expression,
+                            second_expression,
+                            operator,
+                        );
                         first_expression = expr;
                         continue;
                     } else {
+                        let token_info = second_expression.token_info();
                         return Err(ParseError::TypeError(format!(
                             "Type Error: Type mismatched at line {}, column {}",
                             token_info.line_number, token_info.column_number
@@ -1010,36 +1026,40 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Some(Token::OperatorToken {
-                    operator: operator @ (Operators::LESS_THAN | Operators::GREATER_THAN),
+                    operator: Operators::LESS_THAN | Operators::GREATER_THAN,
                     token_info,
-                }) if first_expression.tipe() == &LanguageType::Boolean => {
+                }) if first_expression.tipe() == LanguageType::Boolean => {
                     return Err(ParseError::TypeError(format!(
                         "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )));
                 }
-                Some(Token::WhiteSpaceToken { token_info }) => {
+                Some(Token::WhiteSpaceToken { token_info: _ }) => {
                     self.advance();
                     continue;
                 }
-                _ => return Ok((first_expression, token_info)),
+                _ => return Ok(first_expression),
             }
         }
     }
 
-    fn parse_term(&mut self) -> Result<(AST, TokenInfo), ParseError> {
-        let (mut first_expression, token_info) = self.parse_prod()?;
+    fn parse_term(&mut self) -> Result<AST, ParseError> {
+        let mut first_expression = self.parse_prod()?;
         loop {
-            match self.peek().cloned() {
+            match self.peek() {
                 Some(Token::OperatorToken {
                     operator: operator @ (Operators::PLUS | Operators::MINUS),
-                    token_info,
-                }) if first_expression.tipe() == &LanguageType::Number => {
+                    token_info: _,
+                }) if first_expression.tipe() == LanguageType::Number => {
                     self.advance();
-                    let (second_expression, token_info) = self.parse_prod()?;
+                    let second_expression = self.parse_prod()?;
+                    let token_info = second_expression.token_info();
                     if first_expression.tipe() == second_expression.tipe() {
-                        let expr =
-                            BinaryExpression::new(first_expression, second_expression, operator);
+                        let expr = AST::new_binary_expression(
+                            first_expression,
+                            second_expression,
+                            operator,
+                        );
                         first_expression = expr;
                         continue;
                     } else {
@@ -1052,38 +1072,40 @@ impl<'a> Parser<'a> {
                 Some(Token::OperatorToken {
                     operator: Operators::PLUS | Operators::MINUS,
                     token_info,
-                }) if first_expression.tipe() == &LanguageType::Boolean
-                    || first_expression.tipe() == &LanguageType::Void =>
+                }) if first_expression.tipe() == LanguageType::Boolean
+                    || first_expression.tipe() == LanguageType::Void =>
                 {
                     return Err(ParseError::TypeError(format!(
                         "Type Error: Operator mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )));
                 }
-                Some(Token::WhiteSpaceToken { token_info }) => {
+                Some(Token::WhiteSpaceToken { token_info: _ }) => {
                     self.advance();
                     continue;
                 }
-                _ => {
-                    return Ok((first_expression, token_info));
-                }
+                _ => return Ok(first_expression),
             }
         }
     }
 
-    fn parse_prod(&mut self) -> Result<(AST, TokenInfo), ParseError> {
-        let (mut first_expression, token_info) = self.parse_unary()?;
+    fn parse_prod(&mut self) -> Result<AST, ParseError> {
+        let mut first_expression = self.parse_unary()?;
         loop {
-            match self.peek().cloned() {
+            match self.peek() {
                 Some(Token::OperatorToken {
                     operator: operator @ (Operators::STAR | Operators::DIVIDE),
-                    token_info,
-                }) if first_expression.tipe() == &LanguageType::Number => {
+                    token_info: _,
+                }) if first_expression.tipe() == LanguageType::Number => {
                     self.advance();
-                    let (second_expression, token_info) = self.parse_unary()?;
+                    let second_expression = self.parse_unary()?;
+                    let token_info = second_expression.token_info();
                     if first_expression.tipe() == second_expression.tipe() {
-                        let expr =
-                            BinaryExpression::new(first_expression, second_expression, operator);
+                        let expr = AST::new_binary_expression(
+                            first_expression,
+                            second_expression,
+                            operator,
+                        );
                         first_expression = expr;
                         continue;
                     } else {
@@ -1094,10 +1116,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Some(Token::OperatorToken {
-                    operator: operator @ (Operators::STAR | Operators::DIVIDE),
+                    operator: Operators::STAR | Operators::DIVIDE,
                     token_info,
-                }) if first_expression.tipe() == &LanguageType::Boolean
-                    || first_expression.tipe() == &LanguageType::Void =>
+                }) if first_expression.tipe() == LanguageType::Boolean
+                    || first_expression.tipe() == LanguageType::Void =>
                 {
                     return Err(ParseError::TypeError(format!(
                         "Type Error: Operator mismatched at line {}, column {}",
@@ -1105,30 +1127,29 @@ impl<'a> Parser<'a> {
                     )));
                 }
 
-                Some(Token::WhiteSpaceToken { token_info }) => {
+                Some(Token::WhiteSpaceToken { token_info: _ }) => {
                     self.advance();
                     continue;
                 }
-                _ => {
-                    return Ok((first_expression, token_info));
-                }
+                _ => return Ok(first_expression),
             }
         }
     }
 
-    fn parse_unary(&mut self) -> Result<(AST, TokenInfo), ParseError> {
-        match self.peek().cloned() {
+    fn parse_unary(&mut self) -> Result<AST, ParseError> {
+        match self.peek() {
             Some(Token::OperatorToken {
                 operator: operator @ (Operators::PLUS | Operators::MINUS),
                 token_info,
             }) => {
                 self.advance();
-                let (expr, token_info) = self.parse_unary()?;
-                let tipe = expr.tipe().clone();
-                let unary_expr = UnaryExpression::new(expr, operator);
+                let val = self.parse_unary()?;
+                let tipe = val.tipe();
                 if tipe == LanguageType::Number {
-                    Ok((unary_expr, token_info))
+                    let unary_expr = AST::new_unary_expression(val, operator, &token_info);
+                    Ok(unary_expr)
                 } else {
+                    let token_info = val.token_info();
                     Err(ParseError::TypeError(format!(
                         "Type Error: Type mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
@@ -1140,19 +1161,20 @@ impl<'a> Parser<'a> {
                 token_info,
             }) => {
                 self.advance();
-                let (expr, token_info) = self.parse_unary()?;
-                let tipe = expr.tipe().clone();
-                let unary_expr = UnaryExpression::new(expr, operator);
+                let val = self.parse_unary()?;
+                let tipe = val.tipe();
                 if tipe == LanguageType::Boolean {
-                    Ok((unary_expr, token_info))
+                    let unary_expr = AST::new_unary_expression(val, operator, &token_info);
+                    Ok(unary_expr)
                 } else {
+                    let token_info = val.token_info();
                     Err(ParseError::TypeError(format!(
                         "Type Error: Type mismatched at line {}, column {}",
                         token_info.line_number, token_info.column_number
                     )))
                 }
             }
-            Some(Token::WhiteSpaceToken { token_info }) => {
+            Some(Token::WhiteSpaceToken { token_info: _ }) => {
                 self.advance();
                 self.parse_unary()
             }
@@ -1160,23 +1182,23 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_bracket(&mut self) -> Result<(AST, TokenInfo), ParseError> {
-        match self.peek().cloned() {
+    fn parse_bracket(&mut self) -> Result<AST, ParseError> {
+        match self.peek() {
             Some(Token::SymbolToken {
                 symbol: Symbols::SmallBracketOpen,
-                token_info,
+                token_info: _,
             }) => {
                 self.advance();
-                let (val, token_info) = self.parse_expression()?;
-                match self.peek().cloned() {
+                let val = self.parse_expression()?;
+                match self.peek() {
                     Some(Token::SymbolToken {
                         symbol: Symbols::SmallBracketClose,
-                        token_info,
+                        token_info: _,
                     }) => {
                         self.advance();
-                        Ok((val, token_info))
+                        Ok(val)
                     }
-                    Some(Token::WhiteSpaceToken { token_info }) => {
+                    Some(Token::WhiteSpaceToken { token_info: _ }) => {
                         self.advance();
                         self.parse_bracket()
                     }
@@ -1194,11 +1216,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_block_expression(&mut self) -> Result<(AST, TokenInfo), ParseError> {
-        match self.peek().cloned() {
+    fn parse_block_expression(&mut self) -> Result<AST, ParseError> {
+        match self.peek() {
             Some(Token::SymbolToken {
                 symbol: Symbols::CurlyBracketOpen,
-                token_info,
+                token_info: _,
             }) => {
                 // println!("debug curly: {:?}", "here");
                 self.increment_block_position();
@@ -1208,7 +1230,7 @@ impl<'a> Parser<'a> {
                 let mut statements: Vec<AST> = Vec::new();
                 let mut last_statement_semicolon = false;
                 loop {
-                    match self.peek().cloned() {
+                    match self.peek() {
                         Some(Token::SymbolToken {
                             symbol: Symbols::CurlyBracketClose,
                             token_info,
@@ -1219,20 +1241,19 @@ impl<'a> Parser<'a> {
                             self.consume_optional_semicolon();
                             match statements.last() {
                                 Some(last_statement) if !last_statement_semicolon => {
-                                    let tipe = last_statement.tipe().clone();
-                                    return Ok((AST::BlockStatement(statements, tipe), token_info));
-                                }
-                                Some(_) => {
-                                    return Ok((
-                                        AST::BlockStatement(statements, LanguageType::Void),
+                                    let tipe = last_statement.tipe();
+                                    return Ok(AST::BlockStatement {
+                                        statements,
+                                        tipe,
                                         token_info,
-                                    ));
+                                    });
                                 }
-                                None => {
-                                    return Ok((
-                                        AST::BlockStatement(statements, LanguageType::Void),
+                                Some(_) | None => {
+                                    return Ok(AST::BlockStatement {
+                                        statements,
+                                        tipe: LanguageType::Void,
                                         token_info,
-                                    ));
+                                    });
                                 }
                             }
                         }
@@ -1253,14 +1274,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_identifier_expression(&mut self) -> Result<(AST, TokenInfo), ParseError> {
-        match self.peek().cloned() {
+    fn parse_identifier_expression(&mut self) -> Result<AST, ParseError> {
+        match self.peek() {
             Some(Token::IdentifierToken { lexeme, token_info }) => {
                 // println!("debug in parse_literal {:?}", var_name);
                 self.advance();
                 let identifier_name = lexeme;
                 match self.get_reference_to_identifier(&identifier_name) {
-                    Some(identifier) => Ok((identifier.clone_to_ast(), token_info)),
+                    Some(identifier) => Ok(identifier),
                     None => Err(ParseError::IdentifierError(format!(
                 "Identifier Error: No variable named '{}' found in scope at line {}, column {}",
                 identifier_name,
@@ -1272,18 +1293,18 @@ impl<'a> Parser<'a> {
             _ => self.parse_number_literal(),
         }
     }
-    fn parse_number_literal(&mut self) -> Result<(AST, TokenInfo), ParseError> {
-        match self.peek().cloned() {
+    fn parse_number_literal(&mut self) -> Result<AST, ParseError> {
+        match self.peek() {
             Some(Token::DigitToken { lexeme, token_info }) => {
                 let mut digits = vec![lexeme];
                 let mut num_of_dot = 0;
                 let mut digit_token_info = token_info;
                 self.advance();
                 loop {
-                    match self.peek().cloned() {
+                    match self.peek() {
                         Some(Token::SymbolToken {
                             symbol: Symbols::Dot,
-                            token_info,
+                            token_info: _,
                         }) if num_of_dot < 1 => {
                             self.advance();
                             num_of_dot += 1;
@@ -1304,36 +1325,32 @@ impl<'a> Parser<'a> {
                             digits.push(lexeme);
                         }
 
-                        _ => {
-                            break;
-                        }
+                        _ => break,
                     }
                 }
-                Ok((
-                    AST::Number(
-                        digits
-                            .into_iter()
-                            .map(|d| d.to_string())
-                            .collect::<String>()
-                            .parse::<f64>()
-                            .unwrap(),
-                    ),
-                    digit_token_info,
-                ))
+                Ok(AST::Number {
+                    val: digits
+                        .into_iter()
+                        .map(|d| d.to_string())
+                        .collect::<String>()
+                        .parse::<f64>()
+                        .unwrap(),
+                    token_info: digit_token_info,
+                })
             }
             _ => self.parse_literal(),
         }
     }
 
-    fn parse_literal(&mut self) -> Result<(AST, TokenInfo), ParseError> {
-        match self.peek().cloned() {
+    fn parse_literal(&mut self) -> Result<AST, ParseError> {
+        match self.peek() {
             Some(Token::KeywordToken { keyword: Keywords::True, token_info }) => {
                 self.advance();
-                Ok((AST::Bool(true), token_info))
+                Ok(AST::Bool{val: true, token_info})
             }
             Some(Token::KeywordToken { keyword: Keywords::False, token_info }) => {
                 self.advance();
-                Ok((AST::Bool(false), token_info))
+                Ok(AST::Bool{val: false, token_info})
             }
 
             Some(token) => Err(ParseError::SyntaxError(format!(
@@ -1347,7 +1364,7 @@ impl<'a> Parser<'a> {
         }
     }
 }
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 enum LanguageType {
     Number,
     Boolean,
@@ -1358,41 +1375,299 @@ enum LanguageType {
 }
 #[derive(Debug)]
 enum AST {
-    WhileStatement(Box<AST>, Box<AST>),
-    LetStatement(Box<LetStatement>),
-    AssignmentStatement(Box<AssignmentStatement>),
+    WhileStatement {
+        cond: Box<AST>,
+        block: Box<AST>,
+        token_info: Rc<TokenInfo>,
+    },
 
-    IfElseStatement(Box<AST>, Box<AST>, Box<AST>, LanguageType),
-    BinaryExpression(Box<BinaryExpression>),
-    UnaryExpression(Box<UnaryExpression>),
-    BlockStatement(Vec<AST>, LanguageType),
-    Identifier(Identifier),
-    Number(f64),
-    Bool(bool),
+    LetStatement {
+        lvalue: Rc<str>,
+        rvalue: Box<AST>,
+        token_info: Rc<TokenInfo>,
+    },
+
+    AssignmentStatement {
+        lvalue: Rc<str>,
+        rvalue: Box<AST>,
+        token_info: Rc<TokenInfo>,
+    },
+
+    IfElseStatement {
+        cond: Box<AST>,
+        if_block: Box<AST>,
+        else_block: Box<AST>,
+        tipe: LanguageType,
+        token_info: Rc<TokenInfo>,
+    },
+    BinaryExpression {
+        left: Box<AST>,
+        right: Box<AST>,
+        operator: Operators,
+    },
+    UnaryExpression {
+        val: Box<AST>,
+        operator: Operators,
+        token_info: Rc<TokenInfo>,
+    },
+
+    BlockStatement {
+        statements: Vec<AST>,
+        tipe: LanguageType,
+        token_info: Rc<TokenInfo>,
+    },
+    Identifier {
+        name: Rc<str>,
+        block_position: usize,
+        tipe: LanguageType,
+        token_info: Rc<TokenInfo>,
+    },
+
+    Number {
+        val: f64,
+        token_info: Rc<TokenInfo>,
+    },
+    Bool {
+        val: bool,
+        token_info: Rc<TokenInfo>,
+    },
 
     Placeholder(LanguageType),
-
     HaltStatement,
 }
-
 impl AST {
-    fn tipe(&self) -> &LanguageType {
+    fn tipe(&self) -> LanguageType {
         match self {
-            Self::Number(_) => &LanguageType::Number,
-            Self::Bool(_) => &LanguageType::Boolean,
-            Self::BinaryExpression(boxed_binary_expression) => boxed_binary_expression.tipe(),
-            Self::UnaryExpression(boxed_unary_expression) => boxed_unary_expression.tipe(),
-            Self::LetStatement(boxed_let_statement) => boxed_let_statement.tipe(),
-            Self::AssignmentStatement(boxed_assignment_statement) => {
-                boxed_assignment_statement.tipe()
-            }
-            Self::Identifier(identifier) => identifier.tipe(),
-            Self::BlockStatement(_, tipe) => tipe,
-            Self::WhileStatement(_, _) => &LanguageType::Void,
-            Self::IfElseStatement(_, _, _, tipe) => tipe,
+            Self::Number {
+                val: _,
+                token_info: _,
+            } => LanguageType::Number,
+            Self::Bool {
+                val: _,
+                token_info: _,
+            } => LanguageType::Boolean,
+            Self::UnaryExpression {
+                val: _,
+                operator,
+                token_info: _,
+            } => *operator.tipe(),
+            Self::BinaryExpression {
+                left: _,
+                right: _,
+                operator,
+            } => *operator.tipe(),
 
-            Self::Placeholder(tipe) => tipe,
-            Self::HaltStatement => &LanguageType::Void,
+            Self::Identifier {
+                name: _,
+                block_position: _,
+                tipe,
+                token_info: _,
+            } => *tipe,
+            Self::BlockStatement {
+                statements: _,
+                tipe,
+                token_info: _,
+            } => *tipe,
+
+            Self::IfElseStatement {
+                cond: _,
+                if_block: _,
+                else_block: _,
+                tipe,
+                token_info: _,
+            } => *tipe,
+            Self::Placeholder(tipe) => *tipe,
+
+            Self::WhileStatement {
+                cond: _,
+                block: _,
+                token_info: _,
+            } => LanguageType::Void,
+            Self::LetStatement {
+                lvalue: _,
+                rvalue: _,
+                token_info: _,
+            } => LanguageType::Void,
+            Self::AssignmentStatement {
+                lvalue: _,
+                rvalue: _,
+                token_info: _,
+            } => LanguageType::Void,
+            Self::HaltStatement => LanguageType::Void,
+        }
+    }
+    fn token_info(&self) -> &Rc<TokenInfo> {
+        match self {
+            Self::Number { val: _, token_info } => token_info,
+            Self::Bool { val: _, token_info } => token_info,
+            Self::UnaryExpression {
+                val: _,
+                operator: _,
+                token_info,
+            } => token_info,
+            Self::BinaryExpression {
+                left,
+                right: _,
+                operator: _,
+            } => left.token_info(),
+
+            Self::Identifier {
+                name: _,
+                block_position: _,
+                tipe: _,
+                token_info,
+            } => token_info,
+            Self::BlockStatement {
+                statements: _,
+                tipe: _,
+                token_info,
+            } => token_info,
+
+            Self::IfElseStatement {
+                cond: _,
+                if_block: _,
+                else_block: _,
+                tipe: _,
+                token_info,
+            } => token_info,
+
+            Self::WhileStatement {
+                cond: _,
+                block: _,
+                token_info,
+            } => token_info,
+            Self::LetStatement {
+                lvalue: _,
+                rvalue: _,
+                token_info,
+            } => token_info,
+            Self::AssignmentStatement {
+                lvalue: _,
+                rvalue: _,
+                token_info,
+            } => token_info,
+
+            Self::Placeholder(_) => unreachable!(),
+            Self::HaltStatement => unreachable!(),
+        }
+    }
+
+    fn new_binary_expression(left: Self, right: Self, operator: Operators) -> Self {
+        AST::BinaryExpression {
+            left: Box::new(left),
+            right: Box::new(right),
+            operator,
+        }
+    }
+    fn new_unary_expression(val: Self, operator: Operators, token_info: &Rc<TokenInfo>) -> Self {
+        AST::UnaryExpression {
+            val: Box::new(val),
+            operator,
+            token_info: token_info.clone(),
+        }
+    }
+    fn new_if_else_statement(
+        cond: Self,
+        if_block: Self,
+        else_block: Self,
+        tipe: LanguageType,
+        token_info: &Rc<TokenInfo>,
+    ) -> Self {
+        AST::IfElseStatement {
+            cond: Box::new(cond),
+            if_block: Box::new(if_block),
+            else_block: Box::new(else_block),
+            tipe,
+            token_info: token_info.clone(),
+        }
+    }
+    fn new_assignment_statement(lvalue: &Rc<str>, rvalue: AST, token_info: &Rc<TokenInfo>) -> Self {
+        AST::AssignmentStatement {
+            lvalue: lvalue.clone(),
+            rvalue: Box::new(rvalue),
+            token_info: token_info.clone(),
+        }
+    }
+
+    fn new_let_statement(lvalue: &Rc<str>, rvalue: AST, token_info: &Rc<TokenInfo>) -> Self {
+        AST::LetStatement {
+            lvalue: lvalue.clone(),
+            rvalue: Box::new(rvalue),
+            token_info: token_info.clone(),
+        }
+    }
+
+    fn new_unassigned_let_statement(lvalue: &Rc<str>, token_info: &Rc<TokenInfo>) -> Self {
+        AST::LetStatement {
+            lvalue: lvalue.clone(),
+            rvalue: Box::new(AST::Placeholder(LanguageType::Untyped)),
+            token_info: token_info.clone(),
+        }
+    }
+
+    fn new_while_statement(cond: Self, block: Self, token_info: &Rc<TokenInfo>) -> Self {
+        AST::WhileStatement {
+            cond: Box::new(cond),
+            block: Box::new(block),
+            token_info: token_info.clone(),
+        }
+    }
+
+    fn new_identifier(
+        name: &Rc<str>,
+        block_position: usize,
+        tipe: LanguageType,
+        token_info: &Rc<TokenInfo>,
+    ) -> Self {
+        AST::Identifier {
+            name: name.clone(),
+            block_position,
+            tipe,
+            token_info: token_info.clone(),
+        }
+    }
+
+    fn get_identifier_name(&self) -> Option<Rc<str>> {
+        match self {
+            Self::Identifier {
+                name,
+                block_position: _,
+                tipe: _,
+                token_info: _,
+            } => Some(name.clone()),
+            _ => None,
+        }
+    }
+    fn clone_identifier(&self) -> Option<Self> {
+        match self {
+            Self::Identifier {
+                name,
+                block_position,
+                tipe,
+                token_info,
+            } => Some(AST::new_identifier(
+                name,
+                *block_position,
+                *tipe,
+                token_info,
+            )),
+            _ => None,
+        }
+    }
+    fn clone_and_modify_identifier(&self, tipe_value: LanguageType) -> Option<Self> {
+        match self {
+            Self::Identifier {
+                name,
+                block_position,
+                tipe: _,
+                token_info,
+            } => Some(AST::new_identifier(
+                name,
+                *block_position,
+                tipe_value,
+                token_info,
+            )),
+            _ => None,
         }
     }
 }
@@ -1405,109 +1680,6 @@ enum ParseError {
     SyntaxError(String),
 }
 
-#[derive(Debug)]
-struct BinaryExpression {
-    left: AST,
-    right: AST,
-    operator: Operators,
-}
-impl BinaryExpression {
-    fn new(left: AST, right: AST, operator: Operators) -> AST {
-        AST::BinaryExpression(Box::new(Self {
-            left: left,
-            right: right,
-            operator: operator,
-        }))
-    }
-    fn tipe(&self) -> &LanguageType {
-        self.operator.tipe()
-    }
-}
-#[derive(Debug)]
-struct UnaryExpression {
-    val: AST,
-    operator: Operators,
-}
-impl UnaryExpression {
-    fn new(val: AST, operator: Operators) -> AST {
-        AST::UnaryExpression(Box::new(Self {
-            val: val,
-            operator: operator,
-        }))
-    }
-    fn tipe(&self) -> &LanguageType {
-        self.operator.tipe()
-    }
-}
-
-#[derive(Debug)]
-struct AssignmentStatement {
-    lvalue: String,
-    rvalue: AST,
-}
-
-impl AssignmentStatement {
-    fn new(lvalue: String, rvalue: AST) -> AST {
-        AST::AssignmentStatement(Box::new(Self {
-            lvalue: lvalue,
-            rvalue: rvalue,
-        }))
-    }
-    fn tipe(&self) -> &LanguageType {
-        &LanguageType::Void
-    }
-}
-#[derive(Debug)]
-struct LetStatement {
-    lvalue: String,
-    rvalue: AST,
-}
-
-impl LetStatement {
-    fn new(lvalue: String, rvalue: AST) -> AST {
-        AST::LetStatement(Box::new(Self {
-            lvalue: lvalue,
-            rvalue: rvalue,
-        }))
-    }
-    fn tipe(&self) -> &LanguageType {
-        &LanguageType::Void
-    }
-}
-
-#[derive(Debug)]
-struct Identifier {
-    name: String,
-    block_position: usize,
-    tipe: LanguageType,
-}
-
-impl Identifier {
-    fn new(name: &str, block_position: usize, tipe: LanguageType) -> Self {
-        Self {
-            name: name.to_string(),
-            block_position: block_position,
-            tipe: tipe,
-        }
-    }
-    fn new_ast(name: String, block_position: usize, tipe: LanguageType) -> AST {
-        AST::Identifier(Self {
-            name: name,
-            block_position: block_position,
-            tipe: tipe,
-        })
-    }
-    fn tipe(&self) -> &LanguageType {
-        &self.tipe
-    }
-    fn clone(&self) -> Identifier {
-        Self::new(&self.name, self.block_position, self.tipe)
-    }
-    fn clone_to_ast(&self) -> AST {
-        Self::new_ast(self.name.to_string(), self.block_position, self.tipe)
-    }
-}
-
 ///////////////////////////////////////////////////////// Interpreter Code /////////////////////////////////////////////////
 #[derive(Debug, Clone, Copy)]
 enum InterpreterDataStucture {
@@ -1517,7 +1689,7 @@ enum InterpreterDataStucture {
 }
 
 impl InterpreterDataStucture {
-    fn __match_binary_operation__(left: Self, right: Self, operator: Operators) -> Self {
+    fn match_binary_operation(left: Self, right: Self, operator: Operators) -> Self {
         match (left, right) {
             (Self::Number(l), Self::Number(r)) => match operator {
                 Operators::PLUS => Self::Number(l + r),
@@ -1551,7 +1723,7 @@ impl InterpreterDataStucture {
             }
         }
     }
-    fn __match_unary_operation__(val: Self, operator: Operators) -> Self {
+    fn match_unary_operation(val: Self, operator: Operators) -> Self {
         match val {
             Self::Number(v) => match operator {
                 Operators::PLUS => Self::Number(v),
@@ -1569,7 +1741,7 @@ impl InterpreterDataStucture {
 }
 #[derive(Debug)]
 struct Environment {
-    container: Vec<HashMap<String, InterpreterDataStucture>>,
+    container: Vec<HashMap<Rc<str>, InterpreterDataStucture>>,
 }
 
 impl Environment {
@@ -1578,10 +1750,10 @@ impl Environment {
             container: vec![HashMap::new()],
         }
     }
-    fn insert_new(&mut self, lvalue: String, rvalue: InterpreterDataStucture) {
+    fn insert_new(&mut self, lvalue: Rc<str>, rvalue: InterpreterDataStucture) {
         self.container.last_mut().unwrap().insert(lvalue, rvalue);
     }
-    fn insert(&mut self, lvalue: String, rvalue: InterpreterDataStucture) {
+    fn insert(&mut self, lvalue: Rc<str>, rvalue: InterpreterDataStucture) {
         let mut location = 0;
         for (i, child_container) in self.container.iter().enumerate().rev() {
             if child_container.contains_key(&lvalue) {
@@ -1607,7 +1779,7 @@ impl Environment {
 }
 struct Interpreter {
     environment: Environment,
-    previous_identifiers: Option<Vec<Identifier>>,
+    previous_identifiers: Option<Vec<AST>>,
 }
 
 impl Interpreter {
@@ -1620,48 +1792,58 @@ impl Interpreter {
 
     fn calculate_statement(&mut self, statement: &AST) -> InterpreterDataStucture {
         match statement {
-            AST::Number(val) => InterpreterDataStucture::Number(*val),
+            AST::Number { val, token_info: _ } => InterpreterDataStucture::Number(*val),
 
-            AST::Bool(val) => InterpreterDataStucture::Bool(*val),
+            AST::Bool { val, token_info: _ } => InterpreterDataStucture::Bool(*val),
 
-            AST::BinaryExpression(boxed_expression) => match &**boxed_expression {
-                BinaryExpression {
-                    left,
-                    right,
-                    operator,
-                } => InterpreterDataStucture::__match_binary_operation__(
-                    self.calculate_statement(&left),
-                    self.calculate_statement(&right),
-                    *operator,
-                ),
-            },
-            AST::UnaryExpression(boxed_expression) => match &**boxed_expression {
-                UnaryExpression { val, operator } => {
-                    InterpreterDataStucture::__match_unary_operation__(
-                        self.calculate_statement(&val),
-                        *operator,
-                    )
-                }
-            },
-            AST::LetStatement(boxed_let_statement) => match &**boxed_let_statement {
-                LetStatement { lvalue, rvalue } => {
-                    let return_val = self.calculate_statement(&rvalue);
-                    self.environment.insert_new(lvalue.clone(), return_val);
-                    InterpreterDataStucture::Void
-                }
-            },
-            AST::AssignmentStatement(boxed_assignment_statement) => {
-                match &**boxed_assignment_statement {
-                    AssignmentStatement { lvalue, rvalue } => {
-                        let return_val = self.calculate_statement(&rvalue);
-                        self.environment.insert(lvalue.clone(), return_val);
-                        InterpreterDataStucture::Void
-                    }
-                }
+            AST::BinaryExpression {
+                left,
+                right,
+                operator,
+            } => InterpreterDataStucture::match_binary_operation(
+                self.calculate_statement(&left),
+                self.calculate_statement(&right),
+                *operator,
+            ),
+
+            AST::UnaryExpression {
+                val,
+                operator,
+                token_info: _,
+            } => InterpreterDataStucture::match_unary_operation(
+                self.calculate_statement(&val),
+                *operator,
+            ),
+            AST::LetStatement {
+                lvalue,
+                rvalue,
+                token_info: _,
+            } => {
+                let return_val = self.calculate_statement(&rvalue);
+                self.environment.insert_new(lvalue.clone(), return_val);
+                InterpreterDataStucture::Void
             }
-            AST::Identifier(identifier) => self.environment.get(&identifier.name).unwrap().clone(),
+            AST::AssignmentStatement {
+                lvalue,
+                rvalue,
+                token_info: _,
+            } => {
+                let return_val = self.calculate_statement(&rvalue);
+                self.environment.insert(lvalue.clone(), return_val);
+                InterpreterDataStucture::Void
+            }
+            AST::Identifier {
+                name,
+                block_position: _,
+                tipe: _,
+                token_info: _,
+            } => self.environment.get(name).unwrap().clone(),
 
-            AST::BlockStatement(statements, tipe) => {
+            AST::BlockStatement {
+                statements,
+                tipe,
+                token_info: _,
+            } => {
                 let mut result = InterpreterDataStucture::Void;
                 self.environment.create_child();
                 for statement in statements {
@@ -1674,12 +1856,16 @@ impl Interpreter {
                 }
             }
 
-            AST::WhileStatement(condition, block_statement) => {
+            AST::WhileStatement {
+                cond,
+                block,
+                token_info: _,
+            } => {
                 let mut result = InterpreterDataStucture::Void;
                 loop {
-                    match self.calculate_statement(condition) {
+                    match self.calculate_statement(cond) {
                         InterpreterDataStucture::Bool(b) if b == true => {
-                            result = self.calculate_statement(block_statement);
+                            result = self.calculate_statement(block);
                         }
                         InterpreterDataStucture::Bool(b) if b == false => break,
                         _ => unreachable!(),
@@ -1687,20 +1873,26 @@ impl Interpreter {
                 }
                 result
             }
-            AST::IfElseStatement(condition, if_block_statement, else_block_statement, _) => {
+            AST::IfElseStatement {
+                cond,
+                if_block,
+                else_block,
+                tipe: _,
+                token_info: _,
+            } => {
                 let result;
-                match self.calculate_statement(condition) {
+                match self.calculate_statement(cond) {
                     InterpreterDataStucture::Bool(b) if b == true => {
-                        result = self.calculate_statement(if_block_statement);
+                        result = self.calculate_statement(if_block);
                     }
                     InterpreterDataStucture::Bool(b) if b == false => {
-                        result = self.calculate_statement(else_block_statement);
+                        result = self.calculate_statement(else_block);
                     }
                     _ => unreachable!(),
                 }
                 result
             }
-            AST::Placeholder(tipe) => InterpreterDataStucture::Void,
+            AST::Placeholder(_) => InterpreterDataStucture::Void,
             AST::HaltStatement => InterpreterDataStucture::Void,
         }
     }
@@ -1708,8 +1900,8 @@ impl Interpreter {
     fn tokenize_and_parse(
         &mut self,
         input: &str,
-        previous_identifiers: Option<Vec<Identifier>>,
-    ) -> Result<(Vec<AST>, Option<Vec<Identifier>>), ParseError> {
+        previous_identifiers: Option<Vec<AST>>,
+    ) -> Result<(Vec<AST>, Option<Vec<AST>>), ParseError> {
         let mut tokenizer = Tokenizer::new(&input);
         let tokens = tokenizer.tokenize();
 
@@ -1738,7 +1930,7 @@ impl Interpreter {
             }
         }
     }
-    fn set_previous_identifiers(&mut self, previous_identifiers: Option<Vec<Identifier>>) {
+    fn set_previous_identifiers(&mut self, previous_identifiers: Option<Vec<AST>>) {
         self.previous_identifiers = previous_identifiers;
     }
     fn interpret(&mut self, input: &str) {
