@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "my_lang_rust"
+name = "MyLang"
 version = "0.1.0"
